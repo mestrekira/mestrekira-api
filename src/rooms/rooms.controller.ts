@@ -1,31 +1,25 @@
-import { Injectable } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
-import { RoomEntity } from './room.entity';
+import { Controller, Post, Get, Body, Query } from '@nestjs/common';
+import { RoomsService } from './rooms.service';
 
-@Injectable()
-export class RoomsService {
-  constructor(
-    @InjectRepository(RoomEntity)
-    private readonly roomRepo: Repository<RoomEntity>,
-  ) {}
+@Controller('rooms')
+export class RoomsController {
+  constructor(private readonly roomsService: RoomsService) {}
 
-  async create(name: string, professorId: string) {
-    const room = this.roomRepo.create({
-      name,
-      professorId,
-    });
-
-    return this.roomRepo.save(room);
+  @Post()
+  create(
+    @Body('name') name: string,
+    @Body('professorId') professorId: string,
+  ) {
+    return this.roomsService.create(name, professorId);
   }
 
-  async findByProfessor(professorId: string) {
-    return this.roomRepo.find({
-      where: { professorId },
-    });
+  @Get()
+  findAll() {
+    return this.roomsService.findAll();
   }
 
-  async findAll() {
-    return this.roomRepo.find();
+  @Get('by-professor')
+  findByProfessor(@Query('professorId') professorId: string) {
+    return this.roomsService.findByProfessor(professorId);
   }
 }
