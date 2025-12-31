@@ -24,16 +24,14 @@ export class UsersController {
   }
   
 @Post('login')
-login(
+async login(
   @Body('id') id: string,
   @Body('password') password: string,
 ) {
-  const user = this.usersService.login(id, password);
+  const user = await this.usersService.login(id, password);
 
   if (!user) {
-    return {
-      error: 'ID ou senha inválidos',
-    };
+    return { error: 'ID ou senha inválidos' };
   }
 
   return {
@@ -48,3 +46,4 @@ login(
     return this.usersService.findAll();
   }
 }
+
