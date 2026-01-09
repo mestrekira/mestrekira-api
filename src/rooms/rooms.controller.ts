@@ -1,4 +1,4 @@
-import { Controller, Post, Get, Body, Query } from '@nestjs/common';
+import { Controller, Get, Post, Body, Param, Query } from '@nestjs/common';
 import { RoomsService } from './rooms.service';
 
 @Controller('rooms')
@@ -18,8 +18,8 @@ export class RoomsController {
     return this.roomsService.findByProfessor(professorId);
   }
 
-  @Get()
-  findAll() {
-    return this.roomsService.findAll();
+  @Get(':id')
+  findOne(@Param('id') id: string) {
+    return this.roomsService.findById(id);
   }
 }
