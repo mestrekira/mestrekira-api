@@ -1,33 +1,42 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { EnrollmentEntity } from './enrollment.entity';
+import { RoomEntity } from '../rooms/room.entity';
 
 @Injectable()
 export class EnrollmentsService {
   constructor(
     @InjectRepository(EnrollmentEntity)
     private readonly enrollmentRepo: Repository<EnrollmentEntity>,
+
+    @InjectRepository(RoomEntity)
+    private readonly roomRepo: Repository<RoomEntity>,
   ) {}
 
-  async enroll(studentId: string, roomId: string) {
+  async joinByCode(code: string, studentId: string) {
+   
+    const room = await this.roomRepo.findOne({ where: { code } });
+
+    if (!room) {
+      throw new NotFoundException('Sala não encontrada');
+    }
+
+    const alreadyEnrolled = await this.enrollmentRepo.findOne({
+      where: { roomId: room.id, studentId },
+    });
+
+    if (alreadyEnrolled) {
+      return room;
+    }
+
     const enrollment = this.enrollmentRepo.create({
+      roomId: room.id,
       studentId,
-      roomId,
     });
 
-    return this.enrollmentRepo.save(enrollment);
-  }
+    await this.enrollmentRepo.save(enrollment);
 
-  async findByRoom(roomId: string) {
-    return this.enrollmentRepo.find({
-      where: { roomId },
-    });
-  }
-
-  async findByStudent(studentId: string) {
-    return this.enrollmentRepo.find({
-      where: { studentId },
-    });
+    return room;
   }
 }
