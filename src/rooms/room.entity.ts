@@ -10,4 +10,7 @@ export class RoomEntity {
 
   @Column()
   professorId: string;
+
+  @Column({ unique: true })
+  code: string;
 }
