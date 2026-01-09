@@ -11,21 +11,22 @@ export class RoomsService {
   ) {}
 
   async create(name: string, professorId: string) {
+    const code = 'KIRA-' + Math.random().toString(36).substring(2, 7).toUpperCase();
+
     const room = this.roomRepo.create({
       name,
       professorId,
+      code,
     });
 
     return this.roomRepo.save(room);
   }
 
   async findByProfessor(professorId: string) {
-    return this.roomRepo.find({
-      where: { professorId },
-    });
+    return this.roomRepo.find({ where: { professorId } });
   }
 
-  async findAll() {
-    return this.roomRepo.find();
+  async findById(id: string) {
+    return this.roomRepo.findOne({ where: { id } });
   }
 }
