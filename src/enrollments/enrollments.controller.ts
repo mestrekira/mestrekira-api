@@ -1,27 +1,17 @@
-import { Controller, Post, Get, Body, Query } from '@nestjs/common';
+import { Controller, Post, Body } from '@nestjs/common';
 import { EnrollmentsService } from './enrollments.service';
 
 @Controller('enrollments')
 export class EnrollmentsController {
-  constructor(
-    private readonly enrollmentsService: EnrollmentsService,
-  ) {}
+  constructor(private readonly enrollmentsService: EnrollmentsService) {}
 
-  @Post()
-  enroll(
-    @Body('studentId') studentId: string,
-    @Body('roomId') roomId: string,
-  ) {
-    return this.enrollmentsService.enroll(studentId, roomId);
-  }
+  @Post('join')
+  async join(@Body() body: { code: string; studentId: string }) {
+    const room = await this.enrollmentsService.joinByCode(
+      body.code,
+      body.studentId,
+    );
 
-  @Get('by-room')
-  findByRoom(@Query('roomId') roomId: string) {
-    return this.enrollmentsService.findByRoom(roomId);
-  }
-
-  @Get('by-student')
-  findByStudent(@Query('studentId') studentId: string) {
-    return this.enrollmentsService.findByStudent(studentId);
+    return { roomId: room.id };
   }
 }
