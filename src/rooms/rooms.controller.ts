@@ -29,9 +29,15 @@ export class RoomsController {
     return this.roomsService.findById(id);
   }
 
-  // 🔹 NOVO: alunos da sala
+
   @Get(':id/students')
   findStudents(@Param('id') id: string) {
     return this.roomsService.findStudents(id);
   }
 }
+
+@Get('by-code')
+findByCode(@Query('code') code: string) {
+  return this.roomsService.findByCode(code);
+}
+
