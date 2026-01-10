@@ -1,21 +1,13 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { RoomEntity } from './room.entity';
-import { EnrollmentEntity } from '../enrollments/enrollment.entity';
-import { UserEntity } from '../users/user.entity';
 
 @Injectable()
 export class RoomsService {
   constructor(
     @InjectRepository(RoomEntity)
     private readonly roomRepo: Repository<RoomEntity>,
-
-    @InjectRepository(EnrollmentEntity)
-    private readonly enrollmentRepo: Repository<EnrollmentEntity>,
-
-    @InjectRepository(UserEntity)
-    private readonly userRepo: Repository<UserEntity>,
   ) {}
 
   async create(name: string, professorId: string) {
@@ -31,7 +23,9 @@ export class RoomsService {
   }
 
   async findByProfessor(professorId: string) {
-    return this.roomRepo.find({ where: { professorId } });
+    return this.roomRepo.find({
+      where: { professorId },
+    });
   }
 
   async findAll() {
@@ -39,42 +33,15 @@ export class RoomsService {
   }
 
   async findById(id: string) {
-    const room = await this.roomRepo.findOne({ where: { id } });
-
-    if (!room) {
-      throw new NotFoundException('Sala não encontrada');
-    }
-
-    return room;
-  }
-
-  async findStudents(roomId: string) {
-    const enrollments = await this.enrollmentRepo.find({
-      where: { roomId },
+    return this.roomRepo.findOne({
+      where: { id },
     });
-
-    const studentIds = enrollments.map(e => e.studentId);
-
-    if (studentIds.length === 0) return [];
-
-    const students = await this.userRepo.findByIds(studentIds);
-
-    return students.map(s => ({
-      id: s.id,
-      name: s.name,
-      email: s.email,
-    }));
-  }
-}
-
-async findByCode(code: string) {
-  const room = await this.roomRepo.findOne({
-    where: { code },
-  });
-
-  if (!room) {
-    throw new NotFoundException('Código de sala inválido');
   }
 
-  return room;
+  // 🔹 BUSCAR SALA PELO CÓDIGO
+  async findByCode(code: string) {
+    return this.roomRepo.findOne({
+      where: { code },
+    });
+  }
 }
