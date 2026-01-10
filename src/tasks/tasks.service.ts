@@ -11,20 +11,12 @@ export class TasksService {
   ) {}
 
   async create(roomId: string, title: string, guidelines?: string) {
-    const task = this.taskRepo.create({
-      roomId,
-      title,
-      guidelines,
-    });
-
+    const task = this.taskRepo.create({ roomId, title, guidelines });
     return this.taskRepo.save(task);
   }
 
   async findByRoom(roomId: string) {
-    return this.taskRepo.find({
-      where: { roomId },
-      order: { id: 'DESC' },
-    });
+    return this.taskRepo.find({ where: { roomId } });
   }
 
   async findById(id: string) {
