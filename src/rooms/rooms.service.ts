@@ -3,6 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { RoomEntity } from './room.entity';
 import { EnrollmentEntity } from '../enrollments/enrollment.entity';
+import { UserEntity } from '../users/user.entity';
 
 @Injectable()
 export class RoomsService {
@@ -12,6 +13,9 @@ export class RoomsService {
 
     @InjectRepository(EnrollmentEntity)
     private readonly enrollmentRepo: Repository<EnrollmentEntity>,
+
+    @InjectRepository(UserEntity)
+    private readonly userRepo: Repository<UserEntity>,
   ) {}
 
   async create(name: string, professorId: string) {
@@ -34,7 +38,6 @@ export class RoomsService {
     return this.roomRepo.find();
   }
 
-  // 🔹 NOVO: buscar sala por ID
   async findById(id: string) {
     const room = await this.roomRepo.findOne({ where: { id } });
 
@@ -45,17 +48,21 @@ export class RoomsService {
     return room;
   }
 
- 
   async findStudents(roomId: string) {
     const enrollments = await this.enrollmentRepo.find({
       where: { roomId },
-      relations: ['student'],
     });
 
-    return enrollments.map(e => ({
-      id: e.student.id,
-      name: e.student.name,
-      email: e.student.email,
+    const studentIds = enrollments.map(e => e.studentId);
+
+    if (studentIds.length === 0) return [];
+
+    const students = await this.userRepo.findByIds(studentIds);
+
+    return students.map(s => ({
+      id: s.id,
+      name: s.name,
+      email: s.email,
     }));
   }
 }
