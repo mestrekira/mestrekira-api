@@ -19,6 +19,8 @@ import { TasksModule } from './tasks/tasks.module';
     TasksModule,
     EssaysModule,
     EnrollmentsModule,
+    TasksModule,
   ],
 })
 export class AppModule {}
+
