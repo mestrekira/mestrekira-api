@@ -11,3 +11,4 @@ export class EnrollmentEntity {
   @Column()
   studentId: string;
 }
+
