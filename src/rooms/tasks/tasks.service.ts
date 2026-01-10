@@ -10,12 +10,24 @@ export class TasksService {
     private readonly taskRepo: Repository<TaskEntity>,
   ) {}
 
-  create(roomId: string, title: string, guidelines: string) {
-    const task = this.taskRepo.create({ roomId, title, guidelines });
+  async create(roomId: string, title: string, guidelines?: string) {
+    const task = this.taskRepo.create({
+      roomId,
+      title,
+      guidelines,
+    });
+
     return this.taskRepo.save(task);
   }
 
-  findByRoom(roomId: string) {
-    return this.taskRepo.find({ where: { roomId } });
+  async findByRoom(roomId: string) {
+    return this.taskRepo.find({
+      where: { roomId },
+      order: { id: 'DESC' },
+    });
+  }
+
+  async findById(id: string) {
+    return this.taskRepo.findOne({ where: { id } });
   }
 }
