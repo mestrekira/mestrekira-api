@@ -1,4 +1,4 @@
-import { Controller, Post, Get, Body, Query, Param } from '@nestjs/common';
+import { Controller, Get, Param, Post, Body, Query } from '@nestjs/common';
 import { TasksService } from './tasks.service';
 
 @Controller('tasks')
@@ -6,11 +6,8 @@ export class TasksController {
   constructor(private readonly tasksService: TasksService) {}
 
   @Post()
-  create(
-    @Body('roomId') roomId: string,
-    @Body('title') title: string,
-    @Body('guidelines') guidelines?: string,
-  ) {
+  create(@Body() body: any) {
+    const { roomId, title, guidelines } = body;
     return this.tasksService.create(roomId, title, guidelines);
   }
 
@@ -19,6 +16,7 @@ export class TasksController {
     return this.tasksService.findByRoom(roomId);
   }
 
+  
   @Get(':id')
   findOne(@Param('id') id: string) {
     return this.tasksService.findById(id);
