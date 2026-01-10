@@ -66,3 +66,15 @@ export class RoomsService {
     }));
   }
 }
+
+async findByCode(code: string) {
+  const room = await this.roomRepo.findOne({
+    where: { code },
+  });
+
+  if (!room) {
+    throw new NotFoundException('Código de sala inválido');
+  }
+
+  return room;
+}
