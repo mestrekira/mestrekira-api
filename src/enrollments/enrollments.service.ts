@@ -3,6 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { EnrollmentEntity } from './enrollment.entity';
 import { RoomEntity } from '../rooms/room.entity';
+import { In } from 'typeorm';
 
 @Injectable()
 export class EnrollmentsService {
@@ -43,4 +44,20 @@ export class EnrollmentsService {
       where: { roomId },
     });
   }
+
+  async findRoomsByStudent(studentId: string) {
+  const enrollments = await this.enrollmentRepo.find({
+    where: { studentId },
+  });
+
+  if (enrollments.length === 0) return [];
+
+  const roomIds = enrollments.map(e => e.roomId);
+
+  return this.roomRepo.findBy({
+    id: In(roomIds),
+  });
 }
+
+}
+
