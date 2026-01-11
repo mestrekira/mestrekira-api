@@ -30,4 +30,9 @@ export class EssayEntity {
 
   @CreateDateColumn()
   createdAt: Date;
+  
+  @Column()
+taskId: string;
+
 }
+
