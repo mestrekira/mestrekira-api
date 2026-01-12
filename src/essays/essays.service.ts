@@ -71,4 +71,20 @@ export class EssaysService {
       order: { createdAt: 'DESC' },
     });
   }
+
+  async create(taskId: string, studentId: string, content: string) {
+  const essay = this.essayRepo.create({
+    taskId,
+    studentId,
+    content,
+  });
+
+  return this.essayRepo.save(essay);
 }
+
+async findByTask(taskId: string) {
+  return this.essayRepo.find({ where: { taskId } });
+}
+
+}
+
