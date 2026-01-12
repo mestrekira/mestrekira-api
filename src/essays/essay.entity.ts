@@ -1,9 +1,4 @@
-import {
-  Entity,
-  PrimaryGeneratedColumn,
-  Column,
-  CreateDateColumn,
-} from 'typeorm';
+import { Entity, PrimaryGeneratedColumn, Column } from 'typeorm';
 
 @Entity()
 export class EssayEntity {
@@ -11,28 +6,17 @@ export class EssayEntity {
   id: string;
 
   @Column()
-  roomId: string;
+  taskId: string;
 
   @Column()
-  userId: string;
+  studentId: string;
 
   @Column('text')
   content: string;
-
-  @Column()
-  status: string;
 
   @Column({ nullable: true })
   feedback: string;
 
   @Column({ type: 'int', nullable: true })
   score: number;
-
-  @CreateDateColumn()
-  createdAt: Date;
-  
-  @Column()
-taskId: string;
-
 }
-
