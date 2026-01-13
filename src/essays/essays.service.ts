@@ -53,8 +53,19 @@ export class EssaysService {
     );
   }
 
+  async findOne(id: string) {
+  const essay = await this.essayRepo.findOne({ where: { id } });
+  if (!essay) return null;
+
+  return {
+    ...essay,
+    taskTitle: essay.taskTitle ?? null,
+  };
+}
+
   // 🔹 Buscar uma redação específica
   async findOne(id: string) {
     return this.essayRepo.findOne({ where: { id } });
   }
 }
+
