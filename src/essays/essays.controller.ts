@@ -15,9 +15,15 @@ export class EssaysController {
   findOne(@Param('id') id: string) {
     return this.essaysService.findOne(id);
   }
-
+  
+@Get('by-task/:taskId/with-student')
+findByTaskWithStudent(@Param('taskId') taskId: string) {
+  return this.essaysService.findByTaskWithStudent(taskId);
+}
+  
   @Get('by-task/:taskId')
   findByTask(@Param('taskId') taskId: string) {
     return this.essaysService.findByTask(taskId);
   }
 }
+
