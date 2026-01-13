@@ -21,9 +21,18 @@ findByTaskWithStudent(@Param('taskId') taskId: string) {
   return this.essaysService.findByTaskWithStudent(taskId);
 }
   
+  @Post(':id/correct')
+correctEssay(
+  @Param('id') id: string,
+  @Body() body: { feedback: string; score: number },
+) {
+  return this.essaysService.correct(id, body.feedback, body.score);
+}
+
   @Get('by-task/:taskId')
   findByTask(@Param('taskId') taskId: string) {
     return this.essaysService.findByTask(taskId);
   }
 }
+
 
