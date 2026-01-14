@@ -1,7 +1,8 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, DataSource } from 'typeorm';
+import { Repository, In } from 'typeorm';
 import { EssayEntity } from './essay.entity';
+import { UserEntity } from '../users/user.entity';
 
 @Injectable()
 export class EssaysService {
@@ -9,10 +10,10 @@ export class EssaysService {
     @InjectRepository(EssayEntity)
     private readonly essayRepo: Repository<EssayEntity>,
 
-    private readonly dataSource: DataSource,
+    @InjectRepository(UserEntity)
+    private readonly userRepo: Repository<UserEntity>,
   ) {}
 
-  // 🔹 Criar redação (envio do aluno)
   async create(taskId: string, studentId: string, content: string) {
     const essay = this.essayRepo.create({
       taskId,
@@ -23,49 +24,40 @@ export class EssaysService {
     return this.essayRepo.save(essay);
   }
 
-  // 🔹 Corrigir redação (professor)
   async correct(id: string, feedback: string, score: number) {
     await this.essayRepo.update(id, { feedback, score });
     return this.essayRepo.findOne({ where: { id } });
   }
 
-  // 🔹 Listar redações por tarefa (SIMPLES – uso interno)
   async findByTask(taskId: string) {
     return this.essayRepo.find({ where: { taskId } });
   }
 
-  // 🔹 🔥 LISTAR REDAÇÕES COM DADOS DO ALUNO (USO DO PROFESSOR)
+  // ✅ usado pelo professor (retorna studentName/studentEmail junto)
   async findByTaskWithStudent(taskId: string) {
-    return this.dataSource.query(
-      `
-      SELECT 
-        e.id,
-        e.content,
-        e.feedback,
-        e.score,
-        u.name AS studentName,
-        u.email AS studentEmail
-      FROM essay_entity e
-      JOIN user_entity u ON u.id = e.studentId
-      WHERE e.taskId = ?
-      `,
-      [taskId],
-    );
+    const essays = await this.essayRepo.find({ where: { taskId } });
+    if (essays.length === 0) return [];
+
+    const studentIds = Array.from(new Set(essays.map(e => e.studentId)));
+    const students = await this.userRepo.find({ where: { id: In(studentIds) } });
+
+    const map = new Map(students.map(s => [s.id, s]));
+
+    return essays.map(e => {
+      const s = map.get(e.studentId);
+      return {
+        id: e.id,
+        content: e.content,
+        feedback: e.feedback ?? null,
+        score: e.score ?? null,
+        studentId: e.studentId,
+        studentName: s?.name ?? '(aluno não encontrado)',
+        studentEmail: s?.email ?? '',
+      };
+    });
   }
 
-  async findOne(id: string) {
-  const essay = await this.essayRepo.findOne({ where: { id } });
-  if (!essay) return null;
-
-  return {
-    ...essay,
-    taskTitle: essay.taskTitle ?? null,
-  };
-}
-
-  // 🔹 Buscar uma redação específica
   async findOne(id: string) {
     return this.essayRepo.findOne({ where: { id } });
   }
 }
-
