@@ -53,4 +53,11 @@ export class TasksService {
       where: { roomId },
     });
   }
+
+  async remove(id: string) {
+  await this.taskRepo.delete(id);
+  return { ok: true };
 }
+
+}
+
