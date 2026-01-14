@@ -1,4 +1,4 @@
-import { Controller, Post, Get, Body, Query, Param } from '@nestjs/common';
+import { Controller, Get, Post, Body, Query, Param, Delete } from '@nestjs/common';
 import { RoomsService } from './rooms.service';
 
 @Controller('rooms')
@@ -28,4 +28,12 @@ export class RoomsController {
   findByCode(@Query('code') code: string) {
     return this.roomsService.findByCode(code);
   }
+
+  // ✅ NOVO: excluir sala
+  @Delete(':id')
+  remove(@Param('id') id: string) {
+    return this.roomsService.remove(id);
+  }
 }
+}
+
