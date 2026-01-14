@@ -44,4 +44,11 @@ export class RoomsService {
       where: { code },
     });
   }
+  
+  async remove(id: string) {
+  await this.roomRepo.delete(id);
+  return { ok: true };
 }
+
+}
+
