@@ -11,28 +11,28 @@ export class EssaysController {
     return this.essaysService.create(taskId, studentId, content);
   }
 
-  @Get(':id')
-  findOne(@Param('id') id: string) {
-    return this.essaysService.findOne(id);
+  // ✅ rota usada pelo professor (lista redações + nome/email do aluno)
+  @Get('by-task/:taskId/with-student')
+  findByTaskWithStudent(@Param('taskId') taskId: string) {
+    return this.essaysService.findByTaskWithStudent(taskId);
   }
-  
-@Get('by-task/:taskId/with-student')
-findByTaskWithStudent(@Param('taskId') taskId: string) {
-  return this.essaysService.findByTaskWithStudent(taskId);
-}
-  
-  @Post(':id/correct')
-correctEssay(
-  @Param('id') id: string,
-  @Body() body: { feedback: string; score: number },
-) {
-  return this.essaysService.correct(id, body.feedback, body.score);
-}
 
+  // (opcional) rota simples
   @Get('by-task/:taskId')
   findByTask(@Param('taskId') taskId: string) {
     return this.essaysService.findByTask(taskId);
   }
+
+  // ✅ salvar correção (professor)
+  @Post(':id/correct')
+  correct(@Param('id') id: string, @Body() body: any) {
+    const { feedback, score } = body;
+    return this.essaysService.correct(id, feedback, score);
+  }
+
+  // ✅ genérica por último
+  @Get(':id')
+  findOne(@Param('id') id: string) {
+    return this.essaysService.findOne(id);
+  }
 }
-
-
