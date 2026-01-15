@@ -17,11 +17,7 @@ export class EssayEntity {
   @Column({ nullable: true })
   feedback: string;
 
-  // ✅ Mantém o score como TOTAL (0..1000) para compatibilidade
-  @Column({ type: 'int', nullable: true })
-  score: number;
-
-  // ✅ ENEM: 5 competências (0..200 cada)
+  // ENEM
   @Column({ type: 'int', nullable: true })
   c1: number;
 
@@ -36,4 +32,8 @@ export class EssayEntity {
 
   @Column({ type: 'int', nullable: true })
   c5: number;
+
+  // total (0..1000)
+  @Column({ type: 'int', nullable: true })
+  score: number;
 }
