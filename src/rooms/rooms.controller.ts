@@ -18,22 +18,20 @@ export class RoomsController {
     return this.roomsService.findByProfessor(professorId);
   }
 
-  @Get(':id')
-  findById(@Param('id') id: string) {
-    return this.roomsService.findById(id);
-  }
-
-  // 🔹 BUSCAR SALA PELO CÓDIGO
+  // ✅ BUSCAR SALA PELO CÓDIGO (vem antes do :id)
   @Get('by-code')
   findByCode(@Query('code') code: string) {
     return this.roomsService.findByCode(code);
   }
 
-  // ✅ NOVO: excluir sala
+  @Get(':id')
+  findById(@Param('id') id: string) {
+    return this.roomsService.findById(id);
+  }
+
+  // ✅ excluir sala (agora é exclusão completa)
   @Delete(':id')
   remove(@Param('id') id: string) {
     return this.roomsService.remove(id);
   }
 }
-}
-
