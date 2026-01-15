@@ -177,4 +177,29 @@ export class EssaysService {
       };
     });
   }
+
+  async findOneWithStudent(id: string) {
+  const e = await this.essayRepo.findOne({ where: { id } });
+  if (!e) return null;
+
+  const s = await this.userRepo.findOne({ where: { id: e.studentId } });
+
+  return {
+    id: e.id,
+    content: e.content,
+    feedback: e.feedback ?? null,
+    c1: e.c1 ?? 0,
+    c2: e.c2 ?? 0,
+    c3: e.c3 ?? 0,
+    c4: e.c4 ?? 0,
+    c5: e.c5 ?? 0,
+    score: e.score ?? 0,
+    total: e.score ?? 0,
+    studentId: e.studentId,
+    studentName: s?.name ?? '(aluno não encontrado)',
+    studentEmail: s?.email ?? '',
+  };
 }
+
+}
+
