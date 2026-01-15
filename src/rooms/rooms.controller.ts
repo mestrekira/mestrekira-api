@@ -6,10 +6,7 @@ export class RoomsController {
   constructor(private readonly roomsService: RoomsService) {}
 
   @Post()
-  create(
-    @Body('name') name: string,
-    @Body('professorId') professorId: string,
-  ) {
+  create(@Body('name') name: string, @Body('professorId') professorId: string) {
     return this.roomsService.create(name, professorId);
   }
 
@@ -18,10 +15,21 @@ export class RoomsController {
     return this.roomsService.findByProfessor(professorId);
   }
 
-  // ✅ BUSCAR SALA PELO CÓDIGO (vem antes do :id)
   @Get('by-code')
   findByCode(@Query('code') code: string) {
     return this.roomsService.findByCode(code);
+  }
+
+  // ✅ NOVO: alunos da sala (nome/email)
+  @Get(':id/students')
+  students(@Param('id') id: string) {
+    return this.roomsService.findStudents(id);
+  }
+
+  // ✅ NOVO: overview (professor + colegas)
+  @Get(':id/overview')
+  overview(@Param('id') id: string) {
+    return this.roomsService.overview(id);
   }
 
   @Get(':id')
@@ -29,7 +37,6 @@ export class RoomsController {
     return this.roomsService.findById(id);
   }
 
-  // ✅ excluir sala (agora é exclusão completa)
   @Delete(':id')
   remove(@Param('id') id: string) {
     return this.roomsService.remove(id);
