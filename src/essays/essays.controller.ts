@@ -23,16 +23,27 @@ export class EssaysController {
     return this.essaysService.findByTask(taskId);
   }
 
-  // ✅ salvar correção (professor)
-  @Post(':id/correct')
-  correct(@Param('id') id: string, @Body() body: any) {
-    const { feedback, score } = body;
-    return this.essaysService.correct(id, feedback, score);
-  }
-
+  
+@Post(':id/correct')
+correct(
+  @Param('id') id: string,
+  @Body() body: any,
+) {
+  const { feedback, c1, c2, c3, c4, c5 } = body;
+  return this.essaysService.correctEnem(
+    id,
+    feedback,
+    Number(c1),
+    Number(c2),
+    Number(c3),
+    Number(c4),
+    Number(c5),
+  );
+}
   // ✅ genérica por último
   @Get(':id')
   findOne(@Param('id') id: string) {
     return this.essaysService.findOne(id);
   }
 }
+
