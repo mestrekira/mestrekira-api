@@ -48,4 +48,34 @@ export class UsersService {
 
     return user;
   }
+
+  async findById(id: string) {
+  return this.userRepo.findOne({ where: { id } });
 }
+
+async updateUser(id: string, email?: string, password?: string) {
+  const user = await this.userRepo.findOne({ where: { id } });
+  if (!user) throw new Error('Usuário não encontrado');
+
+  if (email) user.email = email;
+
+  if (password) {
+    if (password.length < 8) throw new Error('Senha muito curta');
+    // Se você já usa bcrypt no login, mantenha:
+    // user.password = await bcrypt.hash(password, 10);
+    // Se NÃO usa bcrypt, comente a linha acima e use:
+    user.password = password;
+  }
+
+  await this.userRepo.save(user);
+
+  return { ok: true };
+}
+
+async removeUser(id: string) {
+  await this.userRepo.delete(id);
+  return { ok: true };
+}
+
+}
+
