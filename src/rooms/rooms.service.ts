@@ -1,11 +1,12 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, In } from 'typeorm';
 
 import { RoomEntity } from './room.entity';
 import { EnrollmentEntity } from '../enrollments/enrollment.entity';
 import { TaskEntity } from '../tasks/task.entity';
 import { EssayEntity } from '../essays/essay.entity';
+import { UserEntity } from '../users/user.entity';
 
 @Injectable()
 export class RoomsService {
@@ -21,6 +22,9 @@ export class RoomsService {
 
     @InjectRepository(EssayEntity)
     private readonly essayRepo: Repository<EssayEntity>,
+
+    @InjectRepository(UserEntity)
+    private readonly userRepo: Repository<UserEntity>,
   ) {}
 
   async create(name: string, professorId: string) {
@@ -51,24 +55,54 @@ export class RoomsService {
     return this.roomRepo.findOne({ where: { code } });
   }
 
+  // ✅ NOVO: lista alunos da sala com nome/email
+  async findStudents(roomId: string) {
+    const enrollments = await this.enrollmentRepo.find({ where: { roomId } });
+    if (enrollments.length === 0) return [];
+
+    const studentIds = enrollments.map(e => e.studentId);
+
+    const students = await this.userRepo.find({
+      where: { id: In(studentIds) },
+    });
+
+    // retorna enxuto (sem passwordHash)
+    return students.map(s => ({
+      id: s.id,
+      name: s.name,
+      email: s.email,
+    }));
+  }
+
+  // ✅ NOVO: overview (ajuda aluno ver professor + colegas)
+  async overview(roomId: string) {
+    const room = await this.roomRepo.findOne({ where: { id: roomId } });
+    if (!room) throw new Error('Sala não encontrada');
+
+    const professor = await this.userRepo.findOne({ where: { id: room.professorId } });
+
+    const students = await this.findStudents(roomId);
+
+    return {
+      room: { id: room.id, name: room.name, code: room.code },
+      professor: professor
+        ? { id: professor.id, name: professor.name, email: professor.email }
+        : null,
+      students,
+    };
+  }
+
   // ✅ EXCLUSÃO COMPLETA: apaga redações -> tarefas -> matrículas -> sala
   async remove(id: string) {
-    // tarefas da sala
     const tasks = await this.taskRepo.find({ where: { roomId: id } });
     const taskIds = tasks.map(t => t.id);
 
-    // redações das tarefas
     for (const taskId of taskIds) {
       await this.essayRepo.delete({ taskId });
     }
 
-    // tarefas
     await this.taskRepo.delete({ roomId: id });
-
-    // matrículas
     await this.enrollmentRepo.delete({ roomId: id });
-
-    // sala
     await this.roomRepo.delete(id);
 
     return { ok: true };
