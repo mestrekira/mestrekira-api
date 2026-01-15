@@ -24,10 +24,21 @@ export class EssaysService {
     return this.essayRepo.save(essay);
   }
 
-  async correct(id: string, feedback: string, score: number) {
-    await this.essayRepo.update(id, { feedback, score });
-    return this.essayRepo.findOne({ where: { id } });
-  }
+ async correctEnem(id: string, feedback: string, c1: number, c2: number, c3: number, c4: number, c5: number) {
+  const score = c1 + c2 + c3 + c4 + c5;
+
+  await this.essayRepo.update(id, {
+    feedback,
+    c1,
+    c2,
+    c3,
+    c4,
+    c5,
+    score,
+  });
+
+  return this.essayRepo.findOne({ where: { id } });
+}
 
   async findByTask(taskId: string) {
     return this.essayRepo.find({ where: { taskId } });
@@ -61,3 +72,4 @@ export class EssaysService {
     return this.essayRepo.findOne({ where: { id } });
   }
 }
+
