@@ -7,9 +7,10 @@ import { EnrollmentEntity } from '../enrollments/enrollment.entity';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([TaskEntity, EnrollmentEntity]),
+    TypeOrmModule.forFeature([TaskEntity, EnrollmentEntity, EssayEntity])
   ],
   controllers: [TasksController],
   providers: [TasksService],
 })
 export class TasksModule {}
+
