@@ -4,11 +4,17 @@ import { RoomsController } from './rooms.controller';
 import { RoomsService } from './rooms.service';
 import { RoomEntity } from './room.entity';
 import { EnrollmentEntity } from '../enrollments/enrollment.entity';
-import { UserEntity } from '../users/user.entity';
+import { TaskEntity } from '../tasks/task.entity';
+import { EssayEntity } from '../essays/essay.entity';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([RoomEntity, EnrollmentEntity, UserEntity]),
+    TypeOrmModule.forFeature([
+      RoomEntity,
+      EnrollmentEntity,
+      TaskEntity,
+      EssayEntity,
+    ]),
   ],
   controllers: [RoomsController],
   providers: [RoomsService],
