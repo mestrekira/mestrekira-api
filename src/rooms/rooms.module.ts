@@ -6,6 +6,7 @@ import { RoomEntity } from './room.entity';
 import { EnrollmentEntity } from '../enrollments/enrollment.entity';
 import { TaskEntity } from '../tasks/task.entity';
 import { EssayEntity } from '../essays/essay.entity';
+import { UserEntity } from '../users/user.entity';
 
 @Module({
   imports: [
@@ -14,6 +15,7 @@ import { EssayEntity } from '../essays/essay.entity';
       EnrollmentEntity,
       TaskEntity,
       EssayEntity,
+      UserEntity,
     ]),
   ],
   controllers: [RoomsController],
