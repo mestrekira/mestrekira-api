@@ -50,8 +50,14 @@ export class EssaysController {
     return this.essaysService.performanceByRoomForStudent(roomId, studentId);
   }
 
+  @Get(':id/with-student')
+findOneWithStudent(@Param('id') id: string) {
+  return this.essaysService.findOneWithStudent(id);
+}
+
   @Get(':id')
   findOne(@Param('id') id: string) {
     return this.essaysService.findOne(id);
   }
 }
+
