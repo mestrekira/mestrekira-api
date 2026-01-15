@@ -1,4 +1,4 @@
-import { Controller, Post, Body, Delete } from '@nestjs/common';
+import { Controller, Post, Body, Delete, Get, Query } from '@nestjs/common';
 import { EnrollmentsService } from './enrollments.service';
 
 @Controller('enrollments')
@@ -12,20 +12,18 @@ export class EnrollmentsController {
       body.studentId,
     );
 
-    return { roomId: enrollment.roomId };
+    return { ok: true, roomId: enrollment.roomId };
   }
 
-  // 🔹 NOVO ENDPOINT
+  // ✅ listar salas do aluno (você já usa no painel-aluno.js)
   @Get('by-student')
-  findByStudent(@Query('studentId') studentId: string) {
+  async byStudent(@Query('studentId') studentId: string) {
     return this.enrollmentsService.findRoomsByStudent(studentId);
   }
 
-  // ✅ NOVO: aluno sair da sala
+  // ✅ sair da sala
   @Delete('leave')
   async leave(@Body() body: { roomId: string; studentId: string }) {
     return this.enrollmentsService.leaveRoom(body.roomId, body.studentId);
   }
 }
-
-
