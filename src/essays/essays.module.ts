@@ -5,10 +5,9 @@ import { EssaysService } from './essays.service';
 import { EssayEntity } from './essay.entity';
 import { UserEntity } from '../users/user.entity';
 import { TaskEntity } from '../tasks/task.entity';
-import { EnrollmentEntity } from '../enrollments/enrollment.entity';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([EssayEntity, UserEntity, TaskEntity, EnrollmentEntity])],
+  imports: [TypeOrmModule.forFeature([EssayEntity, UserEntity, TaskEntity])],
   controllers: [EssaysController],
   providers: [EssaysService],
 })
