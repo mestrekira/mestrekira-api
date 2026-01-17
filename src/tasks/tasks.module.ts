@@ -6,7 +6,7 @@ import { TasksService } from './tasks.service';
 
 import { TaskEntity } from './task.entity';
 import { EnrollmentEntity } from '../enrollments/enrollment.entity';
-import { EssayEntity } from '../essays/essay.entity'; // ✅ IMPORT QUE ESTAVA FALTANDO
+import { EssayEntity } from '../essays/essay.entity';
 
 @Module({
   imports: [
