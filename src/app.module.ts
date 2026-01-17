@@ -11,19 +11,18 @@ import { AnalyticsModule } from './analytics/analytics.module';
 @Module({
   imports: [
     TypeOrmModule.forRoot({
-      type: 'postgres',
-      url: process.env.DATABASE_URL,
+      type: (process.env.DB_TYPE as any) || 'sqlite',
 
-      // Supabase normalmente exige SSL em produção
-      ssl:
-        process.env.NODE_ENV === 'production'
-          ? { rejectUnauthorized: false }
-          : false,
+      // ✅ Postgres no Render (quando DATABASE_URL existir)
+      url: process.env.DATABASE_URL || undefined,
+
+      // ✅ fallback local (SQLite) se você rodar localmente sem DATABASE_URL
+      database: process.env.DATABASE_URL ? undefined : 'database.sqlite',
 
       entities: [__dirname + '/**/*.entity{.ts,.js}'],
 
-      // ok para a fase atual; depois a gente troca para migrations
-      synchronize: true,
+      // ⚠️ Em produção o ideal é migrations; por enquanto pode manter
+      synchronize: process.env.SYNC_DB === 'true',
     }),
 
     UsersModule,
