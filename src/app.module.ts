@@ -8,30 +8,22 @@ import { EnrollmentsModule } from './enrollments/enrollments.module';
 import { TasksModule } from './tasks/tasks.module';
 import { AnalyticsModule } from './analytics/analytics.module';
 
-const isProd = process.env.NODE_ENV === 'production';
-const hasDbUrl = !!process.env.DATABASE_URL;
-
-// Render Postgres normalmente precisa de SSL
-const useSsl = isProd && hasDbUrl;
-
 @Module({
   imports: [
     TypeOrmModule.forRoot({
-      type: hasDbUrl ? 'postgres' : 'sqlite',
+      // ✅ Se existir DATABASE_URL => Postgres (Render)
+      // ✅ Se não existir => SQLite (local)
+      type: process.env.DATABASE_URL ? 'postgres' : 'sqlite',
 
-      // ✅ Produção (Render): Postgres via DATABASE_URL
-      url: hasDbUrl ? process.env.DATABASE_URL : undefined,
+      url: process.env.DATABASE_URL,
 
-      // ✅ Local: SQLite
-      database: hasDbUrl ? undefined : 'database.sqlite',
+      // Só usa database quando for sqlite
+      database: process.env.DATABASE_URL ? undefined : 'database.sqlite',
 
       entities: [__dirname + '/**/*.entity{.ts,.js}'],
 
-      // ⚠️ mantenha true só enquanto está em fase de testes
+      // ⚠️ ok por enquanto (fase TCC). Depois o ideal é migrations.
       synchronize: process.env.SYNC_DB === 'true',
-
-      // ✅ SSL no Render (Postgres)
-      ssl: useSsl ? { rejectUnauthorized: false } : false,
     }),
 
     UsersModule,
