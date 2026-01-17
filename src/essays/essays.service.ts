@@ -1,11 +1,8 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In } from 'typeorm';
-
 import { EssayEntity } from './essay.entity';
 import { UserEntity } from '../users/user.entity';
-import { TaskEntity } from '../tasks/task.entity';
-import { EnrollmentEntity } from '../enrollments/enrollment.entity';
 
 @Injectable()
 export class EssaysService {
@@ -15,16 +12,15 @@ export class EssaysService {
 
     @InjectRepository(UserEntity)
     private readonly userRepo: Repository<UserEntity>,
-
-    @InjectRepository(TaskEntity)
-    private readonly taskRepo: Repository<TaskEntity>,
-
-    @InjectRepository(EnrollmentEntity)
-    private readonly enrollmentRepo: Repository<EnrollmentEntity>,
   ) {}
 
   async create(taskId: string, studentId: string, content: string) {
-    const essay = this.essayRepo.create({ taskId, studentId, content });
+    const essay = this.essayRepo.create({
+      taskId,
+      studentId,
+      content,
+    });
+
     return this.essayRepo.save(essay);
   }
 
@@ -37,7 +33,7 @@ export class EssaysService {
     c4: number,
     c5: number,
   ) {
-    const score = c1 + c2 + c3 + c4 + c5;
+    const score = Number(c1) + Number(c2) + Number(c3) + Number(c4) + Number(c5);
 
     await this.essayRepo.update(id, {
       feedback,
@@ -56,32 +52,35 @@ export class EssaysService {
     return this.essayRepo.find({ where: { taskId } });
   }
 
-  // ✅ usado pelo professor (retorna studentName/studentEmail + ENEM)
+  // ✅ professor: redações + dados do aluno
   async findByTaskWithStudent(taskId: string) {
     const essays = await this.essayRepo.find({ where: { taskId } });
     if (essays.length === 0) return [];
 
-    const studentIds = Array.from(new Set(essays.map(e => e.studentId)));
+    const studentIds = Array.from(new Set(essays.map((e) => e.studentId)));
     const students = await this.userRepo.find({ where: { id: In(studentIds) } });
 
-    const map = new Map(students.map(s => [s.id, s]));
+    const map = new Map(students.map((s) => [s.id, s]));
 
-    return essays.map(e => {
+    return essays.map((e) => {
       const s = map.get(e.studentId);
+
       return {
         id: e.id,
-        content: e.content,
-        feedback: e.feedback ?? null,
-        score: e.score ?? null,
+        taskId: e.taskId,
+        studentId: e.studentId,
 
-        // ✅ ENEM (para reabrir correção preenchida)
+        content: e.content,
+
+        feedback: e.feedback ?? null,
+
         c1: e.c1 ?? null,
         c2: e.c2 ?? null,
         c3: e.c3 ?? null,
         c4: e.c4 ?? null,
         c5: e.c5 ?? null,
+        score: e.score ?? null,
 
-        studentId: e.studentId,
         studentName: s?.name ?? '(aluno não encontrado)',
         studentEmail: s?.email ?? '',
       };
@@ -91,115 +90,4 @@ export class EssaysService {
   async findOne(id: string) {
     return this.essayRepo.findOne({ where: { id } });
   }
-
-  // =========================================================
-  // ✅ DESEMPENHO POR SALA
-  // =========================================================
-
-  // ✅ PROFESSOR: todas as redações da sala + aluno + tarefa
-  async performanceByRoom(roomId: string) {
-    const tasks = await this.taskRepo.find({ where: { roomId } });
-    if (tasks.length === 0) return [];
-
-    const taskMap = new Map(tasks.map(t => [t.id, t]));
-    const taskIds = tasks.map(t => t.id);
-
-    const essays = await this.essayRepo.find({
-      where: { taskId: In(taskIds) },
-    });
-
-    if (essays.length === 0) return [];
-
-    const studentIds = Array.from(new Set(essays.map(e => e.studentId)));
-    const students = await this.userRepo.find({ where: { id: In(studentIds) } });
-    const studentMap = new Map(students.map(s => [s.id, s]));
-
-    return essays.map(e => {
-      const s = studentMap.get(e.studentId);
-      const t = taskMap.get(e.taskId);
-
-      return {
-        id: e.id,
-        taskId: e.taskId,
-        taskTitle: t?.title ?? '(tarefa não encontrada)',
-        taskGuidelines: t?.guidelines ?? null,
-
-        studentId: e.studentId,
-        studentName: s?.name ?? '(aluno não encontrado)',
-        studentEmail: s?.email ?? '',
-
-        score: e.score ?? null,
-        c1: e.c1 ?? null,
-        c2: e.c2 ?? null,
-        c3: e.c3 ?? null,
-        c4: e.c4 ?? null,
-        c5: e.c5 ?? null,
-        feedback: e.feedback ?? null,
-      };
-    });
-  }
-
-  // ✅ ALUNO: desempenho na sala (valida matrícula) só do próprio aluno
-  async performanceByRoomForStudent(roomId: string, studentId: string) {
-    const enrollment = await this.enrollmentRepo.findOne({
-      where: { roomId, studentId },
-    });
-
-    if (!enrollment) {
-      throw new Error('Aluno não matriculado na sala');
-    }
-
-    const tasks = await this.taskRepo.find({ where: { roomId } });
-    if (tasks.length === 0) return [];
-
-    const taskMap = new Map(tasks.map(t => [t.id, t]));
-    const taskIds = tasks.map(t => t.id);
-
-    const essays = await this.essayRepo.find({
-      where: { taskId: In(taskIds), studentId },
-    });
-
-    return essays.map(e => {
-      const t = taskMap.get(e.taskId);
-      return {
-        id: e.id,
-        taskId: e.taskId,
-        taskTitle: t?.title ?? '(tarefa não encontrada)',
-        taskGuidelines: t?.guidelines ?? null,
-
-        score: e.score ?? null,
-        c1: e.c1 ?? null,
-        c2: e.c2 ?? null,
-        c3: e.c3 ?? null,
-        c4: e.c4 ?? null,
-        c5: e.c5 ?? null,
-        feedback: e.feedback ?? null,
-      };
-    });
-  }
-
-  async findOneWithStudent(id: string) {
-  const e = await this.essayRepo.findOne({ where: { id } });
-  if (!e) return null;
-
-  const s = await this.userRepo.findOne({ where: { id: e.studentId } });
-
-  return {
-    id: e.id,
-    content: e.content,
-    feedback: e.feedback ?? null,
-    c1: e.c1 ?? 0,
-    c2: e.c2 ?? 0,
-    c3: e.c3 ?? 0,
-    c4: e.c4 ?? 0,
-    c5: e.c5 ?? 0,
-    score: e.score ?? 0,
-    total: e.score ?? 0,
-    studentId: e.studentId,
-    studentName: s?.name ?? '(aluno não encontrado)',
-    studentEmail: s?.email ?? '',
-  };
 }
-
-}
-
