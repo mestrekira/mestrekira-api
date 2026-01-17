@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, In } from 'typeorm';
+import { In, Repository } from 'typeorm';
 import { EssayEntity } from './essay.entity';
 import { UserEntity } from '../users/user.entity';
 import { TaskEntity } from '../tasks/task.entity';
@@ -15,8 +15,7 @@ export class EssaysService {
     private readonly userRepo: Repository<UserEntity>,
 
     @InjectRepository(TaskEntity)
-private readonly taskRepo: Repository<TaskEntity>,
-
+    private readonly taskRepo: Repository<TaskEntity>,
   ) {}
 
   async create(taskId: string, studentId: string, content: string) {
@@ -38,7 +37,8 @@ private readonly taskRepo: Repository<TaskEntity>,
     c4: number,
     c5: number,
   ) {
-    const score = Number(c1) + Number(c2) + Number(c3) + Number(c4) + Number(c5);
+    const score =
+      Number(c1) + Number(c2) + Number(c3) + Number(c4) + Number(c5);
 
     await this.essayRepo.update(id, {
       feedback,
@@ -63,7 +63,9 @@ private readonly taskRepo: Repository<TaskEntity>,
     if (essays.length === 0) return [];
 
     const studentIds = Array.from(new Set(essays.map((e) => e.studentId)));
-    const students = await this.userRepo.find({ where: { id: In(studentIds) } });
+    const students = await this.userRepo.find({
+      where: { id: In(studentIds) },
+    });
 
     const map = new Map(students.map((s) => [s.id, s]));
 
@@ -96,15 +98,107 @@ private readonly taskRepo: Repository<TaskEntity>,
     return this.essayRepo.findOne({ where: { id } });
   }
 
-  // ✅ Para o professor: desempenho por sala (roomId)
-async performanceByRoom(roomId: string) {
-  // pega todas as tarefas da sala, via essays -> taskId (sem precisar do tasksRepo)
-  // mas precisamos mapear quais taskIds pertencem à sala.
-  // Então: buscamos tasks via query manual (mais simples é ter taskRepo).
-  // Como você NÃO injetou taskRepo aqui, vamos fazer o caminho "correto":
-  throw new Error('performanceByRoom requer acesso às tarefas (TaskEntity). Injete TaskRepo no EssaysService.');
+  // ✅ professor: uma redação + dados do aluno
+  async findOneWithStudent(id: string) {
+    const essay = await this.essayRepo.findOne({ where: { id } });
+    if (!essay) return null;
+
+    const student = await this.userRepo.findOne({
+      where: { id: essay.studentId },
+    });
+
+    return {
+      ...essay,
+      studentName: student?.name ?? '(aluno não encontrado)',
+      studentEmail: student?.email ?? '',
+    };
+  }
+
+  // ✅ professor: desempenho por sala (agrupado por aluno)
+  async performanceByRoom(roomId: string) {
+    const tasks = await this.taskRepo.find({ where: { roomId } });
+    if (tasks.length === 0) return [];
+
+    const taskIds = tasks.map((t) => t.id);
+
+    const essays = await this.essayRepo.find({
+      where: { taskId: In(taskIds) },
+    });
+
+    if (essays.length === 0) return [];
+
+    const studentIds = Array.from(new Set(essays.map((e) => e.studentId)));
+    const students = await this.userRepo.find({
+      where: { id: In(studentIds) },
+    });
+    const studentMap = new Map(students.map((s) => [s.id, s]));
+
+    // agrupa por aluno
+    const byStudent = new Map<string, EssayEntity[]>();
+    for (const e of essays) {
+      const key = e.studentId;
+      if (!byStudent.has(key)) byStudent.set(key, []);
+      byStudent.get(key)!.push(e);
+    }
+
+    return Array.from(byStudent.entries()).map(([studentId, list]) => {
+      const s = studentMap.get(studentId);
+
+      const corrected = list.filter(
+        (x) => x.score !== null && x.score !== undefined,
+      );
+
+      const averageScore =
+        corrected.length > 0
+          ? Math.round(
+              corrected.reduce((sum, x) => sum + (x.score ?? 0), 0) /
+                corrected.length,
+            )
+          : null;
+
+      return {
+        studentId,
+        studentName: s?.name ?? '(aluno não encontrado)',
+        studentEmail: s?.email ?? '',
+        totalEssays: list.length,
+        correctedEssays: corrected.length,
+        averageScore, // 0..1000
+
+        essays: list.map((x) => ({
+          id: x.id,
+          taskId: x.taskId,
+          score: x.score ?? null,
+          c1: x.c1 ?? null,
+          c2: x.c2 ?? null,
+          c3: x.c3 ?? null,
+          c4: x.c4 ?? null,
+          c5: x.c5 ?? null,
+        })),
+      };
+    });
+  }
+
+  // ✅ aluno: desempenho por sala (só dele)
+  async performanceByRoomForStudent(roomId: string, studentId: string) {
+    const tasks = await this.taskRepo.find({ where: { roomId } });
+    if (tasks.length === 0) return [];
+
+    const taskIds = tasks.map((t) => t.id);
+
+    const essays = await this.essayRepo.find({
+      where: { taskId: In(taskIds), studentId },
+    });
+
+    return essays.map((e) => ({
+      id: e.id,
+      taskId: e.taskId,
+      score: e.score ?? null,
+      c1: e.c1 ?? null,
+      c2: e.c2 ?? null,
+      c3: e.c3 ?? null,
+      c4: e.c4 ?? null,
+      c5: e.c5 ?? null,
+      feedback: e.feedback ?? null,
+    }));
+  }
 }
-
-}
-
-
