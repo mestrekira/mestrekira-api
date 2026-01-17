@@ -3,6 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In } from 'typeorm';
 import { EssayEntity } from './essay.entity';
 import { UserEntity } from '../users/user.entity';
+import { TaskEntity } from '../tasks/task.entity';
 
 @Injectable()
 export class EssaysService {
@@ -12,6 +13,10 @@ export class EssaysService {
 
     @InjectRepository(UserEntity)
     private readonly userRepo: Repository<UserEntity>,
+
+    @InjectRepository(TaskEntity)
+private readonly taskRepo: Repository<TaskEntity>,
+
   ) {}
 
   async create(taskId: string, studentId: string, content: string) {
@@ -101,4 +106,5 @@ async performanceByRoom(roomId: string) {
 }
 
 }
+
 
