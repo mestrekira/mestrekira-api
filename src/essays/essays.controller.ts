@@ -14,6 +14,7 @@ export class EssaysController {
   @Post(':id/correct')
   correct(@Param('id') id: string, @Body() body: any) {
     const { feedback, c1, c2, c3, c4, c5 } = body;
+
     return this.essaysService.correctEnem(
       id,
       feedback,
@@ -25,6 +26,7 @@ export class EssaysController {
     );
   }
 
+  // ✅ professor: lista redações com nome/email do aluno
   @Get('by-task/:taskId/with-student')
   findByTaskWithStudent(@Param('taskId') taskId: string) {
     return this.essaysService.findByTaskWithStudent(taskId);
@@ -35,13 +37,13 @@ export class EssaysController {
     return this.essaysService.findByTask(taskId);
   }
 
-  // ✅ DESEMPENHO (PROF): por sala
+  // ✅ desempenho (prof): por sala
   @Get('performance/by-room')
   performanceByRoom(@Query('roomId') roomId: string) {
     return this.essaysService.performanceByRoom(roomId);
   }
 
-  // ✅ DESEMPENHO (ALUNO): por sala
+  // ✅ desempenho (aluno): por sala
   @Get('performance/by-room-for-student')
   performanceByRoomForStudent(
     @Query('roomId') roomId: string,
@@ -50,14 +52,15 @@ export class EssaysController {
     return this.essaysService.performanceByRoomForStudent(roomId, studentId);
   }
 
+  // ✅ professor: uma redação com dados do aluno
   @Get(':id/with-student')
-findOneWithStudent(@Param('id') id: string) {
-  return this.essaysService.findOneWithStudent(id);
-}
+  findOneWithStudent(@Param('id') id: string) {
+    return this.essaysService.findOneWithStudent(id);
+  }
 
+  // ✅ genérica por último
   @Get(':id')
   findOne(@Param('id') id: string) {
     return this.essaysService.findOne(id);
   }
 }
-
