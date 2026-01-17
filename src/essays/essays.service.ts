@@ -90,4 +90,15 @@ export class EssaysService {
   async findOne(id: string) {
     return this.essayRepo.findOne({ where: { id } });
   }
+
+  // ✅ Para o professor: desempenho por sala (roomId)
+async performanceByRoom(roomId: string) {
+  // pega todas as tarefas da sala, via essays -> taskId (sem precisar do tasksRepo)
+  // mas precisamos mapear quais taskIds pertencem à sala.
+  // Então: buscamos tasks via query manual (mais simples é ter taskRepo).
+  // Como você NÃO injetou taskRepo aqui, vamos fazer o caminho "correto":
+  throw new Error('performanceByRoom requer acesso às tarefas (TaskEntity). Injete TaskRepo no EssaysService.');
 }
+
+}
+
