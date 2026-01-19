@@ -8,22 +8,28 @@ import { EnrollmentsModule } from './enrollments/enrollments.module';
 import { TasksModule } from './tasks/tasks.module';
 import { AnalyticsModule } from './analytics/analytics.module';
 
+const hasDbUrl = !!process.env.DATABASE_URL && process.env.DATABASE_URL.trim() !== '';
+
 @Module({
   imports: [
     TypeOrmModule.forRoot({
-      // ✅ Se existir DATABASE_URL => Postgres (Render)
-      // ✅ Se não existir => SQLite (local)
-      type: process.env.DATABASE_URL ? 'postgres' : 'sqlite',
+      type: hasDbUrl ? 'postgres' : 'sqlite',
 
-      url: process.env.DATABASE_URL,
+      // Postgres no Render
+      url: hasDbUrl ? process.env.DATABASE_URL : undefined,
 
-      // Só usa database quando for sqlite
-      database: process.env.DATABASE_URL ? undefined : 'database.sqlite',
+      // SQLite local
+      database: hasDbUrl ? undefined : 'database.sqlite',
 
       entities: [__dirname + '/**/*.entity{.ts,.js}'],
 
-      // ⚠️ ok por enquanto (fase TCC). Depois o ideal é migrations.
-      synchronize: process.env.SYNC_DB === 'true',
+      synchronize: (process.env.SYNC_DB || '').toLowerCase() === 'true',
+
+      // ✅ Render/PG às vezes exige SSL dependendo do provedor.
+      // Se seu Postgres for do próprio Render, geralmente funciona sem ssl.
+      // Se der erro de SSL, descomente isso:
+      // ssl: hasDbUrl ? { rejectUnauthorized: false } : undefined,
+      // extra: hasDbUrl ? { ssl: { rejectUnauthorized: false } } : undefined,
     }),
 
     UsersModule,
