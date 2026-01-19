@@ -1,19 +1,28 @@
-import { Entity, Column, PrimaryGeneratedColumn } from 'typeorm';
+@Post('login')
+async login(@Body('email') email: string, @Body('password') password: string) {
+  const user = await this.usersService.validateUser(email, password);
 
-@Entity()
-export class UserEntity {
-  @PrimaryGeneratedColumn('uuid')
-  id: string;
+  if (!user) {
+    return { error: 'Usuário ou senha inválidos' };
+  }
 
-  @Column()
-  name: string;
+  return {
+    id: user.id,
+    name: user.name,
+    email: user.email,
+    role: (user.role || '').toLowerCase(), // ✅ padroniza
+  };
+}
 
-  @Column({ unique: true })
-  email: string;
+@Get(':id')
+async findOne(@Param('id') id: string) {
+  const user = await this.usersService.findById(id);
+  if (!user) return null;
 
-  @Column()
-  password: string;
-
-  @Column()
-  role: string;
+  return {
+    id: user.id,
+    name: user.name,
+    email: user.email,
+    role: (user.role || '').toLowerCase(), // ✅ padroniza
+  };
 }
