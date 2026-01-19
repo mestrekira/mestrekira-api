@@ -20,16 +20,31 @@ export class RoomsController {
     return this.roomsService.findByCode(code);
   }
 
-  // ✅ NOVO: alunos da sala (nome/email)
+  // ✅ Alunos matriculados (nome/email)
   @Get(':id/students')
   students(@Param('id') id: string) {
     return this.roomsService.findStudents(id);
   }
 
-  // ✅ NOVO: overview (professor + colegas)
+  // ✅ Remover aluno da sala (professor)
+  @Delete(':roomId/students/:studentId')
+  removeStudent(
+    @Param('roomId') roomId: string,
+    @Param('studentId') studentId: string,
+  ) {
+    return this.roomsService.removeStudent(roomId, studentId);
+  }
+
+  // ✅ Overview (professor + colegas)
   @Get(':id/overview')
   overview(@Param('id') id: string) {
     return this.roomsService.overview(id);
+  }
+
+  // ✅ Opcional: sala + professor (leve)
+  @Get(':id/with-professor')
+  withProfessor(@Param('id') id: string) {
+    return this.roomsService.withProfessor(id);
   }
 
   @Get(':id')
