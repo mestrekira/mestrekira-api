@@ -1,6 +1,14 @@
-import { Controller, Get, Post, Body } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Post,
+  Body,
+  Patch,
+  Delete,
+  Param,
+  BadRequestException,
+} from '@nestjs/common';
 import { UsersService } from './users.service';
-import { Patch, Delete, Param } from '@nestjs/common';
 
 @Controller('users')
 export class UsersController {
@@ -12,6 +20,9 @@ export class UsersController {
     @Body('email') email: string,
     @Body('password') password: string,
   ) {
+    if (!name || !email || !password) {
+      throw new BadRequestException('Preencha nome, e-mail e senha.');
+    }
     return this.usersService.createProfessor(name, email, password);
   }
 
@@ -21,45 +32,65 @@ export class UsersController {
     @Body('email') email: string,
     @Body('password') password: string,
   ) {
+    if (!name || !email || !password) {
+      throw new BadRequestException('Preencha nome, e-mail e senha.');
+    }
     return this.usersService.createStudent(name, email, password);
   }
-  
-@Post('login')
-async login(@Body('email') email: string, @Body('password') password: string) {
-  const user = await this.usersService.validateUser(email, password);
 
-  if (!user) {
-    return { error: 'Usuário ou senha inválidos' };
+  // ✅ LOGIN por e-mail (padrão aluno e professor)
+  @Post('login')
+  async login(@Body() body: any) {
+    const email = String(body?.email || '').trim();
+    const password = String(body?.password || '');
+
+    if (!email || !password) {
+      throw new BadRequestException('Informe e-mail e senha.');
+    }
+
+    const user = await this.usersService.validateUser(email, password);
+
+    // Mantém padrão que você já usava (não explode erro)
+    if (!user) {
+      return { error: 'Usuário ou senha inválidos' };
+    }
+
+    return {
+      id: user.id,
+      name: user.name,
+      email: user.email,
+      role: user.role, // já vem padronizado pelo service
+    };
   }
 
-  return {
-    id: user.id,
-    name: user.name,
-    role: user.role,
-  };
-}
+  // ✅ usado pelo menu-perfil.js (GET /users/:id)
+  @Get(':id')
+  findOne(@Param('id') id: string) {
+    return this.usersService.findById(id);
+  }
 
-@Patch(':id')
-update(
-  @Param('id') id: string,
-  @Body() body: { email?: string; password?: string },
-) {
-  return this.usersService.updateUser(id, body.email, body.password);
-}
+  // ✅ usado pelo menu-perfil.js (PATCH /users/:id)
+  @Patch(':id')
+  update(
+    @Param('id') id: string,
+    @Body() body: { email?: string; password?: string },
+  ) {
+    return this.usersService.updateUser(
+      id,
+      body?.email?.trim(),
+      body?.password,
+    );
+  }
 
-@Delete(':id')
-remove(@Param('id') id: string) {
-  return this.usersService.removeUser(id);
-}
+  // ✅ usado pelo menu-perfil.js (DELETE /users/:id)
+  @Delete(':id')
+  remove(@Param('id') id: string) {
+    return this.usersService.removeUser(id);
+  }
 
-@Get(':id')
-findOne(@Param('id') id: string) {
-  return this.usersService.findById(id);
-}
-  
+  // (se você usa esse endpoint pra debug, ok manter)
   @Get()
   findAll() {
     return this.usersService.findAll();
   }
 }
-
