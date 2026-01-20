@@ -8,7 +8,12 @@ import { EnrollmentsModule } from './enrollments/enrollments.module';
 import { TasksModule } from './tasks/tasks.module';
 import { AnalyticsModule } from './analytics/analytics.module';
 
-const hasDbUrl = !!process.env.DATABASE_URL && process.env.DATABASE_URL.trim() !== '';
+const hasDbUrl =
+  !!process.env.DATABASE_URL && process.env.DATABASE_URL.trim() !== '';
+
+const dbSsl =
+  (process.env.DB_SSL || '').toLowerCase() === 'true' ||
+  (process.env.PGSSLMODE || '').toLowerCase() === 'require';
 
 @Module({
   imports: [
@@ -21,15 +26,16 @@ const hasDbUrl = !!process.env.DATABASE_URL && process.env.DATABASE_URL.trim() !
       // SQLite local
       database: hasDbUrl ? undefined : 'database.sqlite',
 
-      entities: [__dirname + '/**/*.entity{.ts,.js}'],
+      autoLoadEntities: true,
 
       synchronize: (process.env.SYNC_DB || '').toLowerCase() === 'true',
 
-      // ✅ Render/PG às vezes exige SSL dependendo do provedor.
-      // Se seu Postgres for do próprio Render, geralmente funciona sem ssl.
-      // Se der erro de SSL, descomente isso:
-      // ssl: hasDbUrl ? { rejectUnauthorized: false } : undefined,
-      // extra: hasDbUrl ? { ssl: { rejectUnauthorized: false } } : undefined,
+      ...(hasDbUrl && dbSsl
+        ? {
+            ssl: { rejectUnauthorized: false },
+            extra: { ssl: { rejectUnauthorized: false } },
+          }
+        : {}),
     }),
 
     UsersModule,
