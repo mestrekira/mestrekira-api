@@ -58,14 +58,10 @@ export class EssaysService {
   }
 
   // ✅ professor: redações + dados do aluno
-  async findByTaskWithStudent(taskId: string) {
-    const essays = await this.essayRepo.find({ where: { taskId } });
-    if (essays.length === 0) return [];
-
-    const studentIds = Array.from(new Set(essays.map((e) => e.studentId)));
-    const students = await this.userRepo.find({
-      where: { id: In(studentIds) },
-    });
+ const essays = await this.essayRepo.find({
+  where: { taskId },
+  order: { id: 'ASC' }, // ✅ ordenação simples e estável
+});
 
     const map = new Map(students.map((s) => [s.id, s]));
 
@@ -228,4 +224,5 @@ async performanceByRoom(roomId: string) {
 }
 
 }
+
 
