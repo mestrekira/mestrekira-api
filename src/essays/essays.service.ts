@@ -178,27 +178,54 @@ export class EssaysService {
     });
   }
 
-  // ✅ aluno: desempenho por sala (só dele)
-  async performanceByRoomForStudent(roomId: string, studentId: string) {
-    const tasks = await this.taskRepo.find({ where: { roomId } });
-    if (tasks.length === 0) return [];
+ // ✅ professor: desempenho por sala (LISTA PLANA de redações com aluno+tarefa)
+async performanceByRoom(roomId: string) {
+  const tasks = await this.taskRepo.find({ where: { roomId } });
+  if (tasks.length === 0) return [];
 
-    const taskIds = tasks.map((t) => t.id);
+  const taskIds = tasks.map((t) => t.id);
 
-    const essays = await this.essayRepo.find({
-      where: { taskId: In(taskIds), studentId },
-    });
+  const essays = await this.essayRepo.find({
+    where: { taskId: In(taskIds) },
+  });
+  if (essays.length === 0) return [];
 
-    return essays.map((e) => ({
+  // mapas auxiliares
+  const taskMap = new Map(tasks.map((t) => [t.id, t]));
+
+  const studentIds = Array.from(new Set(essays.map((e) => e.studentId)));
+  const students = await this.userRepo.find({
+    where: { id: In(studentIds) },
+  });
+  const studentMap = new Map(students.map((s) => [s.id, s]));
+
+  // ✅ retorno plano: 1 item por redação
+  return essays.map((e) => {
+    const t = taskMap.get(e.taskId);
+    const s = studentMap.get(e.studentId);
+
+    return {
       id: e.id,
+
       taskId: e.taskId,
+      taskTitle: t?.title ?? '(tarefa)',
+
+      studentId: e.studentId,
+      studentName: s?.name ?? '(aluno não encontrado)',
+      studentEmail: s?.email ?? '',
+
       score: e.score ?? null,
       c1: e.c1 ?? null,
       c2: e.c2 ?? null,
       c3: e.c3 ?? null,
       c4: e.c4 ?? null,
       c5: e.c5 ?? null,
+
       feedback: e.feedback ?? null,
-    }));
-  }
+      content: e.content ?? '',
+    };
+  });
 }
+
+}
+
