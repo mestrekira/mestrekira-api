@@ -18,10 +18,19 @@ export class EssaysService {
     private readonly taskRepo: Repository<TaskEntity>,
   ) {}
 
-  async create(taskId: string, studentId: string, content: string) {
-    const essay = this.essayRepo.create({ taskId, studentId, content });
-    return this.essayRepo.save(essay);
+async create(taskId: string, studentId: string, content: string) {
+  if (!taskId || !studentId) {
+    throw new BadRequestException('taskId e studentId são obrigatórios');
   }
+
+  const existing = await this.essayRepo.findOne({ where: { taskId, studentId } });
+  if (existing) {
+    throw new BadRequestException('Você já enviou esta redação. Não é possível enviar duas vezes.');
+  }
+
+  const essay = this.essayRepo.create({ taskId, studentId, content });
+  return this.essayRepo.save(essay);
+}
 
   async correctEnem(
     id: string,
@@ -190,3 +199,4 @@ export class EssaysService {
     }));
   }
 }
+
