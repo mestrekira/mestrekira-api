@@ -4,6 +4,7 @@ import { In, Repository } from 'typeorm';
 import { EssayEntity } from './essay.entity';
 import { UserEntity } from '../users/user.entity';
 import { TaskEntity } from '../tasks/task.entity';
+import { BadRequestException } from '@nestjs/common';
 
 @Injectable()
 export class EssaysService {
@@ -199,4 +200,5 @@ async create(taskId: string, studentId: string, content: string) {
     }));
   }
 }
+
 
