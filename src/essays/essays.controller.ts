@@ -1,14 +1,55 @@
-import { Controller, Post, Get, Body, Param, Query } from '@nestjs/common';
+import {
+  Controller,
+  Post,
+  Get,
+  Body,
+  Param,
+  Query,
+  BadRequestException,
+} from '@nestjs/common';
 import { EssaysService } from './essays.service';
 
 @Controller('essays')
 export class EssaysController {
   constructor(private readonly essaysService: EssaysService) {}
 
+  // ✅ ENVIAR redação (bloqueia duplicado)
   @Post()
   create(@Body() body: any) {
-    const { taskId, studentId, content } = body;
-    return this.essaysService.create(taskId, studentId, content);
+    const taskId = (body.taskId || '').trim();
+    const studentId = (body.studentId || '').trim();
+    const content = body.content ?? '';
+
+    if (!taskId || !studentId) {
+      throw new BadRequestException('taskId e studentId são obrigatórios');
+    }
+    return this.essaysService.submit(taskId, studentId, content);
+  }
+
+  // ✅ SALVAR RASCUNHO (upsert)
+  @Post('draft')
+  saveDraft(@Body() body: any) {
+    const taskId = (body.taskId || '').trim();
+    const studentId = (body.studentId || '').trim();
+    const content = body.content ?? '';
+
+    if (!taskId || !studentId) {
+      throw new BadRequestException('taskId e studentId são obrigatórios');
+    }
+    return this.essaysService.saveDraft(taskId, studentId, content);
+  }
+
+  // ✅ buscar redação/rascunho do aluno naquela tarefa
+  @Get('by-task/:taskId/by-student')
+  findByTaskAndStudent(
+    @Param('taskId') taskId: string,
+    @Query('studentId') studentId: string,
+  ) {
+    const t = (taskId || '').trim();
+    const s = (studentId || '').trim();
+    if (!t || !s) throw new BadRequestException('taskId e studentId são obrigatórios');
+
+    return this.essaysService.findByTaskAndStudent(t, s);
   }
 
   @Post(':id/correct')
