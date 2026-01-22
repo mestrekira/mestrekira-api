@@ -1,10 +1,9 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, BadRequestException, ConflictException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository } from 'typeorm';
 import { EssayEntity } from './essay.entity';
 import { UserEntity } from '../users/user.entity';
 import { TaskEntity } from '../tasks/task.entity';
-import { BadRequestException } from '@nestjs/common';
 
 @Injectable()
 export class EssaysService {
@@ -19,19 +18,79 @@ export class EssaysService {
     private readonly taskRepo: Repository<TaskEntity>,
   ) {}
 
-async create(taskId: string, studentId: string, content: string) {
-  if (!taskId || !studentId) {
-    throw new BadRequestException('taskId e studentId são obrigatórios');
+  // ✅ salvar rascunho (upsert)
+  async saveDraft(taskId: string, studentId: string, content: string) {
+    const text = String(content ?? '');
+
+    // pode salvar rascunho vazio? aqui vamos exigir algum conteúdo
+    if (!text.trim()) {
+      throw new BadRequestException('Conteúdo do rascunho vazio.');
+    }
+
+    const existing = await this.essayRepo.findOne({ where: { taskId, studentId } });
+
+    // já enviada: não deixa virar rascunho novamente
+    if (existing && existing.isDraft === false) {
+      throw new ConflictException('Você já enviou esta redação. Não é possível salvar rascunho.');
+    }
+
+    if (!existing) {
+      const essay = this.essayRepo.create({
+        taskId,
+        studentId,
+        content: text,
+        isDraft: true,
+      });
+      return this.essayRepo.save(essay);
+    }
+
+    await this.essayRepo.update(existing.id, {
+      content: text,
+      isDraft: true,
+    });
+
+    return this.essayRepo.findOne({ where: { id: existing.id } });
   }
 
-  const existing = await this.essayRepo.findOne({ where: { taskId, studentId } });
-  if (existing) {
-    throw new BadRequestException('Você já enviou esta redação. Não é possível enviar duas vezes.');
+  // ✅ enviar redação (bloqueia duplicado)
+  async submit(taskId: string, studentId: string, content: string) {
+    const text = String(content ?? '');
+
+    if (text.length < 500) {
+      throw new BadRequestException('A redação deve ter pelo menos 500 caracteres.');
+    }
+
+    const existing = await this.essayRepo.findOne({ where: { taskId, studentId } });
+
+    if (existing && existing.isDraft === false) {
+      // já enviada
+      throw new ConflictException('Você já enviou esta redação para esta tarefa.');
+    }
+
+    // se não existe, cria enviada
+    if (!existing) {
+      const essay = this.essayRepo.create({
+        taskId,
+        studentId,
+        content: text,
+        isDraft: false,
+      });
+      return this.essayRepo.save(essay);
+    }
+
+    // existe rascunho -> vira enviada
+    await this.essayRepo.update(existing.id, {
+      content: text,
+      isDraft: false,
+    });
+
+    return this.essayRepo.findOne({ where: { id: existing.id } });
   }
 
-  const essay = this.essayRepo.create({ taskId, studentId, content });
-  return this.essayRepo.save(essay);
-}
+  // ✅ buscar (rascunho ou enviada) do aluno na tarefa
+  async findByTaskAndStudent(taskId: string, studentId: string) {
+    return this.essayRepo.findOne({ where: { taskId, studentId } });
+  }
 
   async correctEnem(
     id: string,
@@ -44,7 +103,16 @@ async create(taskId: string, studentId: string, content: string) {
   ) {
     const score = Number(c1) + Number(c2) + Number(c3) + Number(c4) + Number(c5);
 
-    await this.essayRepo.update(id, { feedback, c1, c2, c3, c4, c5, score });
+    await this.essayRepo.update(id, {
+      feedback,
+      c1,
+      c2,
+      c3,
+      c4,
+      c5,
+      score,
+      isDraft: false, // ✅ se corrigiu, é enviada
+    });
 
     return this.essayRepo.findOne({ where: { id } });
   }
@@ -53,16 +121,18 @@ async create(taskId: string, studentId: string, content: string) {
     return this.essayRepo.find({ where: { taskId } });
   }
 
-  // ✅ professor: redações + dados do aluno (com ordenação estável)
+  // ✅ professor: redações + dados do aluno (mantém como você já tinha)
   async findByTaskWithStudent(taskId: string) {
     const essays = await this.essayRepo.find({
       where: { taskId },
-      order: { id: 'ASC' }, // ✅ simples e estável
+      order: { id: 'ASC' }, // ✅ ordenação estável
     });
     if (essays.length === 0) return [];
 
     const studentIds = Array.from(new Set(essays.map((e) => e.studentId)));
-    const students = await this.userRepo.find({ where: { id: In(studentIds) } });
+    const students = await this.userRepo.find({
+      where: { id: In(studentIds) },
+    });
 
     const map = new Map(students.map((s) => [s.id, s]));
 
@@ -73,14 +143,19 @@ async create(taskId: string, studentId: string, content: string) {
         id: e.id,
         taskId: e.taskId,
         studentId: e.studentId,
+
         content: e.content,
         feedback: e.feedback ?? null,
+
         c1: e.c1 ?? null,
         c2: e.c2 ?? null,
         c3: e.c3 ?? null,
         c4: e.c4 ?? null,
         c5: e.c5 ?? null,
         score: e.score ?? null,
+
+        isDraft: e.isDraft ?? false,
+
         studentName: s?.name ?? '(aluno não encontrado)',
         studentEmail: s?.email ?? '',
       };
@@ -91,12 +166,13 @@ async create(taskId: string, studentId: string, content: string) {
     return this.essayRepo.findOne({ where: { id } });
   }
 
-  // ✅ professor: uma redação + dados do aluno
   async findOneWithStudent(id: string) {
     const essay = await this.essayRepo.findOne({ where: { id } });
     if (!essay) return null;
 
-    const student = await this.userRepo.findOne({ where: { id: essay.studentId } });
+    const student = await this.userRepo.findOne({
+      where: { id: essay.studentId },
+    });
 
     return {
       ...essay,
@@ -105,10 +181,7 @@ async create(taskId: string, studentId: string, content: string) {
     };
   }
 
-  /**
-   * ✅ professor: desempenho por sala (AGRUPADO POR ALUNO)
-   * ✅ NOVO: inclui taskTitle em cada redação retornada
-   */
+  // ✅ professor: desempenho por sala (LISTA PLANA de redações com aluno+tarefa)
   async performanceByRoom(roomId: string) {
     const tasks = await this.taskRepo.find({ where: { roomId } });
     if (tasks.length === 0) return [];
@@ -120,58 +193,39 @@ async create(taskId: string, studentId: string, content: string) {
     });
     if (essays.length === 0) return [];
 
-    // ✅ map de tarefas para pegar o title
     const taskMap = new Map(tasks.map((t) => [t.id, t]));
 
-    // alunos envolvidos
     const studentIds = Array.from(new Set(essays.map((e) => e.studentId)));
-    const students = await this.userRepo.find({ where: { id: In(studentIds) } });
+    const students = await this.userRepo.find({
+      where: { id: In(studentIds) },
+    });
     const studentMap = new Map(students.map((s) => [s.id, s]));
 
-    // agrupa por aluno
-    const byStudent = new Map<string, EssayEntity[]>();
-    for (const e of essays) {
-      const key = e.studentId;
-      if (!byStudent.has(key)) byStudent.set(key, []);
-      byStudent.get(key)!.push(e);
-    }
-
-    return Array.from(byStudent.entries()).map(([studentId, list]) => {
-      const s = studentMap.get(studentId);
-
-      const corrected = list.filter((x) => x.score !== null && x.score !== undefined);
-
-      const averageScore =
-        corrected.length > 0
-          ? Math.round(
-              corrected.reduce((sum, x) => sum + (x.score ?? 0), 0) / corrected.length,
-            )
-          : null;
+    return essays.map((e) => {
+      const t = taskMap.get(e.taskId);
+      const s = studentMap.get(e.studentId);
 
       return {
-        studentId,
+        id: e.id,
+
+        taskId: e.taskId,
+        taskTitle: t?.title ?? '(tarefa)',
+
+        studentId: e.studentId,
         studentName: s?.name ?? '(aluno não encontrado)',
         studentEmail: s?.email ?? '',
-        totalEssays: list.length,
-        correctedEssays: corrected.length,
-        averageScore, // 0..1000
 
-        // ✅ aqui entra o taskTitle
-        essays: list.map((x) => {
-          const t = taskMap.get(x.taskId);
+        isDraft: e.isDraft ?? false,
 
-          return {
-            id: x.id,
-            taskId: x.taskId,
-            taskTitle: t?.title ?? '(tarefa)',
-            score: x.score ?? null,
-            c1: x.c1 ?? null,
-            c2: x.c2 ?? null,
-            c3: x.c3 ?? null,
-            c4: x.c4 ?? null,
-            c5: x.c5 ?? null,
-          };
-        }),
+        score: e.score ?? null,
+        c1: e.c1 ?? null,
+        c2: e.c2 ?? null,
+        c3: e.c3 ?? null,
+        c4: e.c4 ?? null,
+        c5: e.c5 ?? null,
+
+        feedback: e.feedback ?? null,
+        content: e.content ?? '',
       };
     });
   }
@@ -190,6 +244,7 @@ async create(taskId: string, studentId: string, content: string) {
     return essays.map((e) => ({
       id: e.id,
       taskId: e.taskId,
+      isDraft: e.isDraft ?? false,
       score: e.score ?? null,
       c1: e.c1 ?? null,
       c2: e.c2 ?? null,
@@ -200,5 +255,3 @@ async create(taskId: string, studentId: string, content: string) {
     }));
   }
 }
-
-
