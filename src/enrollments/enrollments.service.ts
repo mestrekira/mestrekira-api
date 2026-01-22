@@ -76,32 +76,39 @@ export class EnrollmentsService {
     return this.enroll(room.id, sId);
   }
 
-  // ✅ listar salas do aluno
-  async findRoomsByStudent(studentId: string) {
-    const sId = (studentId || '').trim();
-    if (!sId) throw new BadRequestException('studentId é obrigatório');
+ // ✅ listar salas do aluno (retorno leve)
+async findRoomsByStudent(studentId: string) {
+  const sId = (studentId || '').trim();
+  if (!sId) throw new BadRequestException('studentId é obrigatório');
 
-    // (opcional mas útil) garante que usuário existe
-    const student = await this.userRepo.findOne({ where: { id: sId } });
-    if (!student) {
-      throw new NotFoundException('Aluno não encontrado');
-    }
+  const student = await this.userRepo.findOne({ where: { id: sId } });
+  if (!student) throw new NotFoundException('Aluno não encontrado');
 
-    const enrollments = await this.enrollmentRepo.find({
-      where: { studentId: sId },
-    });
-
-    if (!enrollments.length) return [];
-
-    const roomIds = Array.from(new Set(enrollments.map((e) => e.roomId)));
-
-    // TypeORM 0.3: findBy({ id: In([...]) }) funciona
-    const rooms = await this.roomRepo.findBy({ id: In(roomIds) });
-
-    // garante ordem parecida com as matrículas (opcional)
-    const map = new Map(rooms.map((r) => [r.id, r]));
-    return roomIds.map((id) => map.get(id)).filter(Boolean);
+  const role = String(student.role || '').toUpperCase();
+  if (role !== 'STUDENT') {
+    throw new BadRequestException('Apenas alunos podem listar salas por matrícula');
   }
+
+  const enrollments = await this.enrollmentRepo.find({ where: { studentId: sId } });
+  if (!enrollments.length) return [];
+
+  const roomIds = Array.from(new Set(enrollments.map((e) => e.roomId)));
+
+  const rooms = await this.roomRepo.findBy({ id: In(roomIds) });
+
+  const map = new Map(rooms.map((r) => [r.id, r]));
+
+  return roomIds
+    .map((id) => map.get(id))
+    .filter(Boolean)
+    .map((r) => ({
+      id: r!.id,
+      name: r!.name,
+      code: r!.code, // opcional (pode remover se não usar)
+      professorId: r!.professorId, // opcional
+    }));
+}
+
 
   // ✅ sair da sala
   async leaveRoom(roomId: string, studentId: string) {
@@ -134,3 +141,4 @@ export class EnrollmentsService {
     }));
   }
 }
+
