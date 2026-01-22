@@ -1,6 +1,14 @@
-import { Entity, PrimaryGeneratedColumn, Column } from 'typeorm';
+import {
+  Entity,
+  PrimaryGeneratedColumn,
+  Column,
+  CreateDateColumn,
+  UpdateDateColumn,
+  Index,
+} from 'typeorm';
 
 @Entity()
+@Index(['taskId', 'studentId'], { unique: true }) // ✅ 1 por tarefa/aluno
 export class EssayEntity {
   @PrimaryGeneratedColumn('uuid')
   id: string;
@@ -13,6 +21,10 @@ export class EssayEntity {
 
   @Column('text')
   content: string;
+
+  // ✅ rascunho vs enviada
+  @Column({ type: 'boolean', default: true })
+  isDraft: boolean;
 
   @Column({ nullable: true })
   feedback: string;
@@ -36,4 +48,10 @@ export class EssayEntity {
   // total (0..1000)
   @Column({ type: 'int', nullable: true })
   score: number;
+
+  @CreateDateColumn()
+  createdAt: Date;
+
+  @UpdateDateColumn()
+  updatedAt: Date;
 }
