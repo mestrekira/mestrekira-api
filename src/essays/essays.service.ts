@@ -18,14 +18,25 @@ export class EssaysService {
     private readonly taskRepo: Repository<TaskEntity>,
   ) {}
 
+  /**
+   * ✅ Extrai o "corpo" da redação quando vier empacotada:
+   * "__TITLE__:titulo\n\ncorpo..."
+   * Se não estiver empacotada, retorna o texto inteiro.
+   */
+  private extractBodyFromPackedContent(content: string) {
+    const text = String(content ?? '').replace(/\r\n/g, '\n');
+    const m = text.match(/^__TITLE__\s*:\s*.*?\n\n([\s\S]*)$/i);
+    if (m) return String(m[1] ?? '');
+    return text;
+  }
+
   // ✅ salvar rascunho (upsert)
   async saveDraft(taskId: string, studentId: string, content: string) {
     const text = String(content ?? '');
 
-    // pode salvar rascunho vazio? aqui vamos exigir algum conteúdo
-    if (!text.trim()) {
-      throw new BadRequestException('Conteúdo do rascunho vazio.');
-    }
+    // ✅ rascunho pode ficar vazio (evita travar autosave no início)
+    // Se você preferir exigir algo, deixe a checagem no frontend.
+    // if (!text.trim()) throw new BadRequestException('Conteúdo do rascunho vazio.');
 
     const existing = await this.essayRepo.findOne({ where: { taskId, studentId } });
 
@@ -56,7 +67,9 @@ export class EssaysService {
   async submit(taskId: string, studentId: string, content: string) {
     const text = String(content ?? '');
 
-    if (text.length < 500) {
+    // ✅ conta mínimo de 500 pelo corpo (se estiver empacotada), senão pelo texto inteiro
+    const body = this.extractBodyFromPackedContent(text);
+    if ((body || '').length < 500) {
       throw new BadRequestException('A redação deve ter pelo menos 500 caracteres.');
     }
 
@@ -117,14 +130,18 @@ export class EssaysService {
     return this.essayRepo.findOne({ where: { id } });
   }
 
+  // ✅ lista por tarefa (IMPORTANTE: professor normalmente quer só ENVIADAS)
   async findByTask(taskId: string) {
-    return this.essayRepo.find({ where: { taskId } });
+    return this.essayRepo.find({
+      where: { taskId, isDraft: false },
+      order: { id: 'ASC' },
+    });
   }
 
-  // ✅ professor: redações + dados do aluno (mantém como você já tinha)
+  // ✅ professor: redações + dados do aluno (agora filtra rascunhos)
   async findByTaskWithStudent(taskId: string) {
     const essays = await this.essayRepo.find({
-      where: { taskId },
+      where: { taskId, isDraft: false },
       order: { id: 'ASC' }, // ✅ ordenação estável
     });
     if (essays.length === 0) return [];
@@ -181,7 +198,7 @@ export class EssaysService {
     };
   }
 
-  // ✅ professor: desempenho por sala (LISTA PLANA de redações com aluno+tarefa)
+  // ✅ professor: desempenho por sala (NÃO contar rascunhos)
   async performanceByRoom(roomId: string) {
     const tasks = await this.taskRepo.find({ where: { roomId } });
     if (tasks.length === 0) return [];
@@ -189,7 +206,7 @@ export class EssaysService {
     const taskIds = tasks.map((t) => t.id);
 
     const essays = await this.essayRepo.find({
-      where: { taskId: In(taskIds) },
+      where: { taskId: In(taskIds), isDraft: false },
     });
     if (essays.length === 0) return [];
 
@@ -230,7 +247,7 @@ export class EssaysService {
     });
   }
 
-  // ✅ aluno: desempenho por sala (só dele)
+  // ✅ aluno: desempenho por sala (só dele) — também sem rascunhos
   async performanceByRoomForStudent(roomId: string, studentId: string) {
     const tasks = await this.taskRepo.find({ where: { roomId } });
     if (tasks.length === 0) return [];
@@ -238,7 +255,7 @@ export class EssaysService {
     const taskIds = tasks.map((t) => t.id);
 
     const essays = await this.essayRepo.find({
-      where: { taskId: In(taskIds), studentId },
+      where: { taskId: In(taskIds), studentId, isDraft: false },
     });
 
     return essays.map((e) => ({
