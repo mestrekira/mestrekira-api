@@ -13,6 +13,12 @@ import { EssaysService } from './essays.service';
 export class EssaysController {
   constructor(private readonly essaysService: EssaysService) {}
 
+  // ✅ saúde (deixe sempre acima de rotas dinâmicas tipo :id)
+  @Get('ping')
+  ping() {
+    return { ok: true, where: 'essays' };
+  }
+
   // ✅ ENVIAR redação (bloqueia duplicado)
   @Post()
   create(@Body() body: any) {
@@ -104,11 +110,4 @@ export class EssaysController {
   findOne(@Param('id') id: string) {
     return this.essaysService.findOne(id);
   }
-
-  @Get('ping')
-ping() {
-  return { ok: true, where: 'essays' };
 }
-
-}
-
