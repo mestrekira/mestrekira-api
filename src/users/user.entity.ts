@@ -8,6 +8,7 @@ import {
 } from 'typeorm';
 
 @Entity()
+@Index(['email'], { unique: true })
 export class UserEntity {
   @PrimaryGeneratedColumn('uuid')
   id: string;
@@ -15,11 +16,10 @@ export class UserEntity {
   @Column()
   name: string;
 
-  @Column({ unique: true })
+  @Column()
   email: string;
 
-  // ✅ você pode estar usando "password" ou "passwordHash" no service.
-  // Ajuste conforme seu UsersService:
+  // ✅ compatível com UsersService (ele lê/grava "password")
   @Column()
   password: string;
 
