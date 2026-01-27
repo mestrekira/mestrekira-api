@@ -104,4 +104,11 @@ export class EssaysController {
   findOne(@Param('id') id: string) {
     return this.essaysService.findOne(id);
   }
+
+  @Get('ping')
+ping() {
+  return { ok: true, where: 'essays' };
 }
+
+}
+
