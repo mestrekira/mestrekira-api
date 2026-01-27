@@ -1,28 +1,34 @@
-@Post('login')
-async login(@Body('email') email: string, @Body('password') password: string) {
-  const user = await this.usersService.validateUser(email, password);
+import {
+  Entity,
+  PrimaryGeneratedColumn,
+  Column,
+  CreateDateColumn,
+  UpdateDateColumn,
+  Index,
+} from 'typeorm';
 
-  if (!user) {
-    return { error: 'Usuário ou senha inválidos' };
-  }
+@Entity()
+export class UserEntity {
+  @PrimaryGeneratedColumn('uuid')
+  id: string;
 
-  return {
-    id: user.id,
-    name: user.name,
-    email: user.email,
-    role: (user.role || '').toLowerCase(), // ✅ padroniza
-  };
-}
+  @Column()
+  name: string;
 
-@Get(':id')
-async findOne(@Param('id') id: string) {
-  const user = await this.usersService.findById(id);
-  if (!user) return null;
+  @Column({ unique: true })
+  email: string;
 
-  return {
-    id: user.id,
-    name: user.name,
-    email: user.email,
-    role: (user.role || '').toLowerCase(), // ✅ padroniza
-  };
+  // ✅ você pode estar usando "password" ou "passwordHash" no service.
+  // Ajuste conforme seu UsersService:
+  @Column()
+  password: string;
+
+  @Column({ default: 'student' })
+  role: string;
+
+  @CreateDateColumn()
+  createdAt: Date;
+
+  @UpdateDateColumn()
+  updatedAt: Date;
 }
