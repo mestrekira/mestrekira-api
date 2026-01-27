@@ -13,11 +13,13 @@ import { EssaysService } from './essays.service';
 export class EssaysController {
   constructor(private readonly essaysService: EssaysService) {}
 
+  // ✅ healthcheck simples
   @Get('ping')
   ping() {
     return { ok: true, where: 'essays' };
   }
 
+  // ✅ ENVIAR redação (bloqueia duplicado)
   @Post()
   create(@Body() body: any) {
     const taskId = (body.taskId || '').trim();
@@ -30,6 +32,7 @@ export class EssaysController {
     return this.essaysService.submit(taskId, studentId, content);
   }
 
+  // ✅ SALVAR RASCUNHO (upsert)
   @Post('draft')
   saveDraft(@Body() body: any) {
     const taskId = (body.taskId || '').trim();
@@ -42,6 +45,7 @@ export class EssaysController {
     return this.essaysService.saveDraft(taskId, studentId, content);
   }
 
+  // ✅ buscar redação/rascunho do aluno naquela tarefa
   @Get('by-task/:taskId/by-student')
   findByTaskAndStudent(
     @Param('taskId') taskId: string,
@@ -69,6 +73,7 @@ export class EssaysController {
     );
   }
 
+  // ✅ professor: lista redações com nome/email do aluno
   @Get('by-task/:taskId/with-student')
   findByTaskWithStudent(@Param('taskId') taskId: string) {
     return this.essaysService.findByTaskWithStudent(taskId);
@@ -79,11 +84,13 @@ export class EssaysController {
     return this.essaysService.findByTask(taskId);
   }
 
+  // ✅ desempenho (prof): por sala
   @Get('performance/by-room')
   performanceByRoom(@Query('roomId') roomId: string) {
     return this.essaysService.performanceByRoom(roomId);
   }
 
+  // ✅ desempenho (aluno): por sala
   @Get('performance/by-room-for-student')
   performanceByRoomForStudent(
     @Query('roomId') roomId: string,
@@ -92,11 +99,13 @@ export class EssaysController {
     return this.essaysService.performanceByRoomForStudent(roomId, studentId);
   }
 
+  // ✅ professor: uma redação com dados do aluno
   @Get(':id/with-student')
   findOneWithStudent(@Param('id') id: string) {
     return this.essaysService.findOneWithStudent(id);
   }
 
+  // ✅ genérica por último
   @Get(':id')
   findOne(@Param('id') id: string) {
     return this.essaysService.findOne(id);
