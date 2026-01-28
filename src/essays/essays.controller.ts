@@ -9,7 +9,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { EssaysService } from './essays.service';
-
+import { ParseUUIDPipe } from '@nestjs/common';
 @Controller('essays')
 export class EssaysController {
   constructor(private readonly essaysService: EssaysService) {}
@@ -100,12 +100,14 @@ export class EssaysController {
   }
 
   @Get(':id/with-student')
-  findOneWithStudent(@Param('id') id: string) {
-    return this.essaysService.findOneWithStudent(id);
-  }
+findOneWithStudent(@Param('id', new ParseUUIDPipe({ version: '4' })) id: string) {
+  return this.essaysService.findOneWithStudent(id);
+}
+
 
   @Get(':id')
-  findOne(@Param('id') id: string) {
-    return this.essaysService.findOne(id);
-  }
+findOne(@Param('id', new ParseUUIDPipe({ version: '4' })) id: string) {
+  return this.essaysService.findOne(id);
 }
+}
+
