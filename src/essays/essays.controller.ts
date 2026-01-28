@@ -99,15 +99,17 @@ export class EssaysController {
     return this.essaysService.performanceByRoomForStudent(roomId, studentId);
   }
 
-  @Get(':id/with-student')
-findOneWithStudent(@Param('id', new ParseUUIDPipe({ version: '4' })) id: string) {
-  return this.essaysService.findOneWithStudent(id);
-}
+  // ... (todas as rotas específicas aqui)
 
+  @Get(':id/with-student')
+  findOneWithStudent(@Param('id', new ParseUUIDPipe({ version: '4' })) id: string) {
+    return this.essaysService.findOneWithStudent(id);
+  }
 
   @Get(':id')
-findOne(@Param('id', new ParseUUIDPipe({ version: '4' })) id: string) {
-  return this.essaysService.findOne(id);
+  findOne(@Param('id', new ParseUUIDPipe({ version: '4' })) id: string) {
+    return this.essaysService.findOne(id);
+  }
 }
-}
+
 
