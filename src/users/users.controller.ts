@@ -39,18 +39,11 @@ export class UsersController {
   }
 
   // ✅ LOGIN por e-mail (padrão aluno e professor)
-  @Post('login')
-  async login(@Body() body: any) {
-    const email = String(body?.email || '').trim();
-    const password = String(body?.password || '');
-
-    if (!email || !password) {
-      throw new BadRequestException('Informe e-mail e senha.');
-    }
-
+@Post('login')
+async login(@Body('email') email: string, @Body('password') password: string) {
+  try {
     const user = await this.usersService.validateUser(email, password);
 
-    // Mantém padrão que você já usava (não explode erro)
     if (!user) {
       return { error: 'Usuário ou senha inválidos' };
     }
@@ -59,9 +52,14 @@ export class UsersController {
       id: user.id,
       name: user.name,
       email: user.email,
-      role: user.role, // já vem padronizado pelo service
+      role: (user.role || '').toLowerCase(),
     };
+  } catch (err) {
+    console.error('LOGIN ERROR:', err); // <- isso vai aparecer no Render
+    throw err; // deixa o Nest retornar 500, mas agora com stack no log
   }
+}
+
 
   // ✅ usado pelo menu-perfil.js (GET /users/:id)
   @Get(':id')
@@ -94,3 +92,4 @@ export class UsersController {
     return this.usersService.findAll();
   }
 }
+
