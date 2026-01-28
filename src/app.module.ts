@@ -37,6 +37,11 @@ const sqliteConfig: TypeOrmModuleOptions = {
   synchronize: sync,
 };
 
+console.log('[DB] hasDbUrl:', hasDbUrl);
+console.log('[DB] DATABASE_URL startsWith postgres:', (process.env.DATABASE_URL || '').startsWith('postgres'));
+console.log('[DB] SYNC_DB:', process.env.SYNC_DB);
+console.log('[DB] DB_SSL:', process.env.DB_SSL, 'PGSSLMODE:', process.env.PGSSLMODE);
+
 @Module({
   imports: [
     TypeOrmModule.forRoot(hasDbUrl ? postgresConfig : sqliteConfig),
@@ -50,3 +55,4 @@ const sqliteConfig: TypeOrmModuleOptions = {
   ],
 })
 export class AppModule {}
+
