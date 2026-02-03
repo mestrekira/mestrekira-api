@@ -1,5 +1,5 @@
-import { Entity, PrimaryGeneratedColumn, Column } from 'typeorm';
-import { CreateDateColumn, UpdateDateColumn, Column } from 'typeorm';
+import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn } from 'typeorm';
+
 @Entity()
 export class TaskEntity {
   @PrimaryGeneratedColumn('uuid')
@@ -19,5 +19,7 @@ createdAt: Date;
 
 @UpdateDateColumn({ type: 'timestamp', name: 'updatedAt' })
 updatedAt: Date;
+
 }
+
 
