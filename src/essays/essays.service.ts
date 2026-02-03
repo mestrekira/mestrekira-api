@@ -34,10 +34,6 @@ export class EssaysService {
   async saveDraft(taskId: string, studentId: string, content: string) {
     const text = String(content ?? '');
 
-    // ✅ rascunho pode ficar vazio (evita travar autosave no início)
-    // Se você preferir exigir algo, deixe a checagem no frontend.
-    // if (!text.trim()) throw new BadRequestException('Conteúdo do rascunho vazio.');
-
     const existing = await this.essayRepo.findOne({ where: { taskId, studentId } });
 
     // já enviada: não deixa virar rascunho novamente
@@ -76,7 +72,6 @@ export class EssaysService {
     const existing = await this.essayRepo.findOne({ where: { taskId, studentId } });
 
     if (existing && existing.isDraft === false) {
-      // já enviada
       throw new ConflictException('Você já enviou esta redação para esta tarefa.');
     }
 
@@ -124,25 +119,29 @@ export class EssaysService {
       c4,
       c5,
       score,
-      isDraft: false, // ✅ se corrigiu, é enviada
+      isDraft: false,
     });
 
     return this.essayRepo.findOne({ where: { id } });
   }
 
-  // ✅ lista por tarefa (IMPORTANTE: professor normalmente quer só ENVIADAS)
+  // ✅ lista por tarefa (professor normalmente quer só ENVIADAS)
   async findByTask(taskId: string) {
     return this.essayRepo.find({
       where: { taskId, isDraft: false },
-      order: { id: 'ASC' },
+      // melhor: ordena por data; se por algum motivo não existir, id dá estabilidade
+      order: { createdAt: 'DESC' as any, id: 'ASC' as any },
     });
   }
 
-  // ✅ professor: redações + dados do aluno (agora filtra rascunhos)
+  /**
+   * ✅ professor: redações + dados do aluno (filtra rascunhos)
+   * ✅ IMPORTANTE: agora retorna createdAt/updatedAt no JSON
+   */
   async findByTaskWithStudent(taskId: string) {
     const essays = await this.essayRepo.find({
       where: { taskId, isDraft: false },
-      order: { id: 'ASC' }, // ✅ ordenação estável
+      order: { createdAt: 'DESC' as any, id: 'ASC' as any },
     });
     if (essays.length === 0) return [];
 
@@ -173,6 +172,10 @@ export class EssaysService {
 
         isDraft: e.isDraft ?? false,
 
+        // ✅ DATAS
+        createdAt: e.createdAt ?? null,
+        updatedAt: e.updatedAt ?? null,
+
         studentName: s?.name ?? '(aluno não encontrado)',
         studentEmail: s?.email ?? '',
       };
@@ -191,6 +194,7 @@ export class EssaysService {
       where: { id: essay.studentId },
     });
 
+    // aqui já vinha createdAt/updatedAt por causa do spread
     return {
       ...essay,
       studentName: student?.name ?? '(aluno não encontrado)',
@@ -243,6 +247,10 @@ export class EssaysService {
 
         feedback: e.feedback ?? null,
         content: e.content ?? '',
+
+        // ✅ DATAS (útil se você quiser evoluir o dashboard)
+        createdAt: e.createdAt ?? null,
+        updatedAt: e.updatedAt ?? null,
       };
     });
   }
@@ -256,6 +264,7 @@ export class EssaysService {
 
     const essays = await this.essayRepo.find({
       where: { taskId: In(taskIds), studentId, isDraft: false },
+      order: { createdAt: 'DESC' as any, id: 'ASC' as any },
     });
 
     return essays.map((e) => ({
@@ -269,6 +278,10 @@ export class EssaysService {
       c4: e.c4 ?? null,
       c5: e.c5 ?? null,
       feedback: e.feedback ?? null,
+
+      // ✅ DATAS (pode mostrar no painel do aluno depois)
+      createdAt: e.createdAt ?? null,
+      updatedAt: e.updatedAt ?? null,
     }));
   }
 }
