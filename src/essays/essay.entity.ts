@@ -7,8 +7,8 @@ import {
   Index,
 } from 'typeorm';
 
-@Entity()
-@Index(['taskId', 'studentId'], { unique: true }) // ✅ 1 por tarefa/aluno
+@Entity('essay_entity')
+@Index(['taskId', 'studentId'], { unique: true })
 export class EssayEntity {
   @PrimaryGeneratedColumn('uuid')
   id: string;
@@ -49,9 +49,11 @@ export class EssayEntity {
   @Column({ type: 'int', nullable: true })
   score: number;
 
-  @CreateDateColumn()
+   @CreateDateColumn({ type: 'timestamptz' })
   createdAt: Date;
 
-  @UpdateDateColumn()
+  @UpdateDateColumn({ type: 'timestamptz' })
   updatedAt: Date;
 }
+
+
