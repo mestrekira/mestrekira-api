@@ -1,6 +1,10 @@
-import { Injectable, BadRequestException, ConflictException } from '@nestjs/common';
+import {
+  Injectable,
+  BadRequestException,
+  ConflictException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { In, Repository } from 'typeorm';
+import { In, Repository, QueryFailedError } from 'typeorm';
 import { EssayEntity } from './essay.entity';
 import { UserEntity } from '../users/user.entity';
 import { TaskEntity } from '../tasks/task.entity';
@@ -30,27 +34,66 @@ export class EssaysService {
     return text;
   }
 
-  // ✅ salvar rascunho (upsert)
+  // ✅ detecta violação de unique no Postgres (23505)
+  private isUniqueViolation(err: any) {
+    return (
+      err instanceof QueryFailedError &&
+      (err as any)?.driverError?.code === '23505'
+    );
+  }
+
+  /**
+   * ✅ salvar rascunho (upsert)
+   * PATCH mínimo: protege contra concorrência/race (dois autosaves ao mesmo tempo)
+   * sem mexer no fluxo do sistema.
+   */
   async saveDraft(taskId: string, studentId: string, content: string) {
     const text = String(content ?? '');
 
+    // ⚠️ Mantém seu comportamento atual (1 linha por task+student)
     const existing = await this.essayRepo.findOne({ where: { taskId, studentId } });
 
     // já enviada: não deixa virar rascunho novamente
     if (existing && existing.isDraft === false) {
-      throw new ConflictException('Você já enviou esta redação. Não é possível salvar rascunho.');
+      throw new ConflictException(
+        'Você já enviou esta redação. Não é possível salvar rascunho.',
+      );
     }
 
+    // não existe ainda → tenta criar rascunho
     if (!existing) {
-      const essay = this.essayRepo.create({
-        taskId,
-        studentId,
-        content: text,
-        isDraft: true,
-      });
-      return this.essayRepo.save(essay);
+      try {
+        const essay = this.essayRepo.create({
+          taskId,
+          studentId,
+          content: text,
+          isDraft: true,
+        });
+        return await this.essayRepo.save(essay);
+      } catch (err) {
+        // se concorrência criou ao mesmo tempo, cai aqui por UNIQUE
+        if (!this.isUniqueViolation(err)) throw err;
+
+        // recarrega e segue o fluxo padrão (update)
+        const again = await this.essayRepo.findOne({ where: { taskId, studentId } });
+
+        if (again && again.isDraft === false) {
+          throw new ConflictException(
+            'Você já enviou esta redação. Não é possível salvar rascunho.',
+          );
+        }
+        if (!again) throw err; // caso raríssimo
+
+        await this.essayRepo.update(again.id, {
+          content: text,
+          isDraft: true,
+        });
+
+        return this.essayRepo.findOne({ where: { id: again.id } });
+      }
     }
 
+    // existe (rascunho) → atualiza
     await this.essayRepo.update(existing.id, {
       content: text,
       isDraft: true,
@@ -66,7 +109,9 @@ export class EssaysService {
     // ✅ conta mínimo de 500 pelo corpo (se estiver empacotada), senão pelo texto inteiro
     const body = this.extractBodyFromPackedContent(text);
     if ((body || '').length < 500) {
-      throw new BadRequestException('A redação deve ter pelo menos 500 caracteres.');
+      throw new BadRequestException(
+        'A redação deve ter pelo menos 500 caracteres.',
+      );
     }
 
     const existing = await this.essayRepo.findOne({ where: { taskId, studentId } });
@@ -109,7 +154,8 @@ export class EssaysService {
     c4: number,
     c5: number,
   ) {
-    const score = Number(c1) + Number(c2) + Number(c3) + Number(c4) + Number(c5);
+    const score =
+      Number(c1) + Number(c2) + Number(c3) + Number(c4) + Number(c5);
 
     await this.essayRepo.update(id, {
       feedback,
@@ -136,7 +182,7 @@ export class EssaysService {
 
   /**
    * ✅ professor: redações + dados do aluno (filtra rascunhos)
-   * ✅ IMPORTANTE: agora retorna createdAt/updatedAt no JSON
+   * ✅ IMPORTANTE: retorna createdAt/updatedAt no JSON
    */
   async findByTaskWithStudent(taskId: string) {
     const essays = await this.essayRepo.find({
@@ -194,7 +240,6 @@ export class EssaysService {
       where: { id: essay.studentId },
     });
 
-    // aqui já vinha createdAt/updatedAt por causa do spread
     return {
       ...essay,
       studentName: student?.name ?? '(aluno não encontrado)',
@@ -248,7 +293,7 @@ export class EssaysService {
         feedback: e.feedback ?? null,
         content: e.content ?? '',
 
-        // ✅ DATAS (útil se você quiser evoluir o dashboard)
+        // ✅ DATAS
         createdAt: e.createdAt ?? null,
         updatedAt: e.updatedAt ?? null,
       };
@@ -279,7 +324,7 @@ export class EssaysService {
       c5: e.c5 ?? null,
       feedback: e.feedback ?? null,
 
-      // ✅ DATAS (pode mostrar no painel do aluno depois)
+      // ✅ DATAS
       createdAt: e.createdAt ?? null,
       updatedAt: e.updatedAt ?? null,
     }));
