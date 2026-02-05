@@ -4,9 +4,13 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { DataSource, Repository } from 'typeorm';
+import { DataSource, In, Repository } from 'typeorm';
+
 import { UserEntity } from './user.entity';
 import { EssayEntity } from '../essays/essay.entity';
+import { RoomEntity } from '../rooms/room.entity';
+import { EnrollmentEntity } from '../enrollments/enrollment.entity';
+import { TaskEntity } from '../tasks/task.entity';
 
 function normalizeRole(role: any): 'professor' | 'student' {
   const r = String(role || '').toLowerCase();
@@ -25,6 +29,15 @@ export class UsersService {
     @InjectRepository(EssayEntity)
     private readonly essayRepo: Repository<EssayEntity>,
 
+    @InjectRepository(RoomEntity)
+    private readonly roomRepo: Repository<RoomEntity>,
+
+    @InjectRepository(EnrollmentEntity)
+    private readonly enrollmentRepo: Repository<EnrollmentEntity>,
+
+    @InjectRepository(TaskEntity)
+    private readonly taskRepo: Repository<TaskEntity>,
+
     private readonly dataSource: DataSource,
   ) {}
 
@@ -32,8 +45,9 @@ export class UsersService {
     email = String(email || '').trim().toLowerCase();
 
     if (!email.includes('@')) throw new BadRequestException('E-mail inválido.');
-    if (!password || password.length < 8)
+    if (!password || password.length < 8) {
       throw new BadRequestException('Senha deve ter no mínimo 8 caracteres.');
+    }
 
     const exists = await this.userRepo.findOne({ where: { email } });
     if (exists) throw new BadRequestException('Este e-mail já está cadastrado.');
@@ -52,8 +66,9 @@ export class UsersService {
     email = String(email || '').trim().toLowerCase();
 
     if (!email.includes('@')) throw new BadRequestException('E-mail inválido.');
-    if (!password || password.length < 8)
+    if (!password || password.length < 8) {
       throw new BadRequestException('Senha deve ter no mínimo 8 caracteres.');
+    }
 
     const exists = await this.userRepo.findOne({ where: { email } });
     if (exists) throw new BadRequestException('Este e-mail já está cadastrado.');
@@ -125,9 +140,9 @@ export class UsersService {
   }
 
   /**
-   * ✅ Exclusão "limpa" (prioridade armazenamento)
-   * - Aluno: apaga redações do aluno e depois o usuário.
-   * - Professor: vamos completar quando você colar Room/Task/memberships.
+   * ✅ Exclusão "limpa" com transação (libera armazenamento)
+   * - student: apaga redações + matrículas e depois o usuário
+   * - professor: apaga salas do professor e tudo abaixo (tarefas, redações, matrículas) e depois o usuário
    */
   async removeUser(id: string) {
     const user = await this.userRepo.findOne({ where: { id } });
@@ -136,37 +151,51 @@ export class UsersService {
     const role = normalizeRole(user.role);
 
     await this.dataSource.transaction(async (manager) => {
-      // 1) ALUNO: apaga redações do aluno
       if (role === 'student') {
-        await manager
-          .createQueryBuilder()
-          .delete()
-          .from(EssayEntity)
-          .where('"studentId" = :id', { id })
-          .execute();
+        // 1) apaga redações do aluno
+        await manager.delete(EssayEntity, { studentId: id });
 
-        // TODO (quando você colar as tabelas):
-        // - remover vínculo aluno-sala
-        // - remover feedbacks/relatórios do aluno (se existirem)
+        // 2) apaga matrículas do aluno
+        await manager.delete(EnrollmentEntity, { studentId: id });
+
+        // 3) apaga usuário
+        await manager.delete(UserEntity, { id });
+
+        return;
       }
 
-      // 2) PROFESSOR: vamos completar com Room/Task
-      if (role === 'professor') {
-        // TODO (quando você colar as tabelas):
-        // - achar salas do professor
-        // - apagar tarefas dessas salas
-        // - apagar redações dessas tarefas
-        // - apagar vínculos aluno-sala dessas salas
-        // - apagar as salas
+      // role === 'professor'
+      // 1) pega salas do professor
+      const rooms = await manager.find(RoomEntity, { where: { professorId: id } });
+      const roomIds = rooms.map((r) => r.id);
+
+      if (roomIds.length > 0) {
+        // 2) pega tarefas dessas salas
+        const tasks = await manager.find(TaskEntity, { where: { roomId: In(roomIds) } });
+        const taskIds = tasks.map((t) => t.id);
+
+        // 3) apaga redações das tarefas
+        if (taskIds.length > 0) {
+          await manager
+            .createQueryBuilder()
+            .delete()
+            .from(EssayEntity)
+            .where('"taskId" IN (:...taskIds)', { taskIds })
+            .execute();
+        }
+
+        // 4) apaga tarefas
+        await manager.delete(TaskEntity, { roomId: In(roomIds) });
+
+        // 5) apaga matrículas dessas salas
+        await manager.delete(EnrollmentEntity, { roomId: In(roomIds) });
+
+        // 6) apaga salas
+        await manager.delete(RoomEntity, { id: In(roomIds) });
       }
 
-      // 3) por fim apaga o usuário
-      await manager
-        .createQueryBuilder()
-        .delete()
-        .from(UserEntity)
-        .where('id = :id', { id })
-        .execute();
+      // 7) apaga usuário professor
+      await manager.delete(UserEntity, { id });
     });
 
     return { ok: true };
