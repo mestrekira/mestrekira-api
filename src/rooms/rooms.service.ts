@@ -86,7 +86,9 @@ export class RoomsService {
     const room = await this.roomRepo.findOne({ where: { id: rid } });
     if (!room) throw new NotFoundException('Sala não encontrada');
 
-    const enrollments = await this.enrollmentRepo.find({ where: { roomId: rid } });
+    const enrollments = await this.enrollmentRepo.find({
+      where: { roomId: rid },
+    });
     if (enrollments.length === 0) return [];
 
     const studentIds = Array.from(new Set(enrollments.map((e) => e.studentId)));
@@ -107,6 +109,11 @@ export class RoomsService {
     });
   }
 
+  /**
+   * ✅ Professor remove aluno da sala:
+   * - remove matrícula
+   * - remove redações do aluno vinculadas às tarefas dessa sala (libera armazenamento)
+   */
   async removeStudent(roomId: string, studentId: string) {
     const rid = (roomId || '').trim();
     const sid = (studentId || '').trim();
@@ -124,6 +131,20 @@ export class RoomsService {
 
     if (!enrollment) {
       return { ok: true, removed: false };
+    }
+
+    // ✅ apaga redações do aluno nas tarefas dessa sala
+    const tasks = await this.taskRepo.find({ where: { roomId: rid } });
+    const taskIds = tasks.map((t) => t.id);
+
+    if (taskIds.length > 0) {
+      await this.essayRepo
+        .createQueryBuilder()
+        .delete()
+        .from(EssayEntity)
+        .where('"studentId" = :sid', { sid })
+        .andWhere('"taskId" IN (:...taskIds)', { taskIds })
+        .execute();
     }
 
     await this.enrollmentRepo.delete({ roomId: rid, studentId: sid });
@@ -171,6 +192,11 @@ export class RoomsService {
     };
   }
 
+  /**
+   * ✅ Remove sala:
+   * - apaga redações das tarefas
+   * - apaga tarefas, matrículas e a sala
+   */
   async remove(id: string) {
     const rid = (id || '').trim();
     if (!rid) throw new BadRequestException('id é obrigatório.');
@@ -181,9 +207,14 @@ export class RoomsService {
     const tasks = await this.taskRepo.find({ where: { roomId: rid } });
     const taskIds = tasks.map((t) => t.id);
 
-    // apaga redações
-    for (const taskId of taskIds) {
-      await this.essayRepo.delete({ taskId });
+    // apaga redações de todas as tarefas dessa sala
+    if (taskIds.length > 0) {
+      await this.essayRepo
+        .createQueryBuilder()
+        .delete()
+        .from(EssayEntity)
+        .where('"taskId" IN (:...taskIds)', { taskIds })
+        .execute();
     }
 
     // apaga tarefas, matrículas e sala
