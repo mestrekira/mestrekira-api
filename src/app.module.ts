@@ -52,7 +52,9 @@ console.log('[DB] DB_SSL:', process.env.DB_SSL, 'PGSSLMODE:', process.env.PGSSLM
     EssaysModule,
     EnrollmentsModule,
     AnalyticsModule,
+    CleanupModule,
   ],
 })
 export class AppModule {}
+
 
