@@ -19,12 +19,18 @@ export class UserEntity {
   @Column()
   email: string;
 
-  // ✅ compatível com UsersService (ele lê/grava "password")
   @Column()
   password: string;
 
   @Column({ default: 'student' })
   role: string;
+
+  // ✅ controle do aviso/exclusão por inatividade
+  @Column({ type: 'timestamptz', nullable: true })
+  inactivityWarnedAt: Date | null;
+
+  @Column({ type: 'timestamptz', nullable: true })
+  scheduledDeletionAt: Date | null;
 
   @CreateDateColumn()
   createdAt: Date;
