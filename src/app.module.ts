@@ -8,8 +8,10 @@ import { EssaysModule } from './essays/essays.module';
 import { EnrollmentsModule } from './enrollments/enrollments.module';
 import { TasksModule } from './tasks/tasks.module';
 import { AnalyticsModule } from './analytics/analytics.module';
+import { CleanupModule } from './cleanup/cleanup.module'; // ✅ ADICIONAR
 
-const hasDbUrl = !!process.env.DATABASE_URL && process.env.DATABASE_URL.trim() !== '';
+const hasDbUrl =
+  !!process.env.DATABASE_URL && process.env.DATABASE_URL.trim() !== '';
 
 const dbSsl =
   (process.env.DB_SSL || '').toLowerCase() === 'true' ||
@@ -38,9 +40,17 @@ const sqliteConfig: TypeOrmModuleOptions = {
 };
 
 console.log('[DB] hasDbUrl:', hasDbUrl);
-console.log('[DB] DATABASE_URL startsWith postgres:', (process.env.DATABASE_URL || '').startsWith('postgres'));
+console.log(
+  '[DB] DATABASE_URL startsWith postgres:',
+  (process.env.DATABASE_URL || '').startsWith('postgres'),
+);
 console.log('[DB] SYNC_DB:', process.env.SYNC_DB);
-console.log('[DB] DB_SSL:', process.env.DB_SSL, 'PGSSLMODE:', process.env.PGSSLMODE);
+console.log(
+  '[DB] DB_SSL:',
+  process.env.DB_SSL,
+  'PGSSLMODE:',
+  process.env.PGSSLMODE,
+);
 
 @Module({
   imports: [
@@ -52,9 +62,7 @@ console.log('[DB] DB_SSL:', process.env.DB_SSL, 'PGSSLMODE:', process.env.PGSSLM
     EssaysModule,
     EnrollmentsModule,
     AnalyticsModule,
-    CleanupModule,
+    CleanupModule, // ✅ agora compila
   ],
 })
 export class AppModule {}
-
-
