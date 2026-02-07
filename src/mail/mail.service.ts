@@ -11,14 +11,12 @@ export class MailService {
     this.resend = key ? new Resend(key) : null;
   }
 
- try {
-  const result = await this.resend.emails.send({ from, to: params.to, subject, html });
-  this.logger.log(`Resend OK: ${params.to}`);
-  return { ok: true, result };
-} catch (err: any) {
-  this.logger.error(`Resend FAIL: ${params.to} | ${err?.message || err}`);
-  throw err;
-} {
+  async sendInactivityWarning(params: {
+    to: string;
+    name: string;
+    deletionDateISO: string;
+    downloadUrl: string;
+  }) {
     const from = process.env.MAIL_FROM?.trim();
     if (!from) {
       this.logger.warn('MAIL_FROM não configurado. Pulando envio.');
@@ -33,14 +31,23 @@ export class MailService {
     const subject = 'Aviso: sua conta será removida por inatividade';
     const html = this.buildInactivityHtml(params);
 
-    const result = await this.resend.emails.send({
-      from,
-      to: params.to,
-      subject,
-      html,
-    });
+    try {
+      const result = await this.resend.emails.send({
+        from,
+        to: params.to,
+        subject,
+        html,
+      });
 
-    return { ok: true, result };
+      this.logger.log(`Resend OK: ${params.to}`);
+      return { ok: true, result };
+    } catch (err: any) {
+      this.logger.error(
+        `Resend FAIL: ${params.to} | ${err?.message || err}`,
+        err?.stack,
+      );
+      throw err;
+    }
   }
 
   private buildInactivityHtml({
@@ -82,5 +89,4 @@ export class MailService {
       </div>
     `;
   }
-
 }
