@@ -39,7 +39,7 @@ export class MailService {
         html,
       });
 
-      this.logger.log(`Resend OK: ${params.to}`);
+      this.logger.log(`Resend OK: to=${params.to} | result=${JSON.stringify(result)}`);
       return { ok: true, result };
     } catch (err: any) {
       this.logger.error(
@@ -90,3 +90,4 @@ export class MailService {
     `;
   }
 }
+
