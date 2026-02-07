@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 import { UsersService } from '../users/users.service';
+import { MailService } from '../mail/mail.service';
 
 type UserRow = {
   id: string;
@@ -17,8 +18,9 @@ export class CleanupService {
   constructor(
     private readonly dataSource: DataSource,
     private readonly usersService: UsersService,
+    private readonly mail: MailService,
   ) {}
-
+  
   async runInactiveCleanup(days = 90, warnDays = 7) {
     const warnThresholdDays = days - warnDays;
 
@@ -126,4 +128,18 @@ export class CleanupService {
     x.setUTCDate(x.getUTCDate() + days);
     return x;
   }
+
+   private async sendInactivityEmail(email: string, name: string, deletionDate: Date) {
+    const baseUrl = (process.env.APP_WEB_URL || '').trim() || 'https://mestrekira.vercel.app';
+    const downloadUrl = `${baseUrl}/export`; // depois você aponta pro endpoint real
+
+    return this.mail.sendInactivityWarning({
+      to: email,
+      name,
+      deletionDateISO: deletionDate.toISOString(),
+      downloadUrl,
+    });
+  }
 }
+
+
