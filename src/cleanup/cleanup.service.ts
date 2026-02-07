@@ -37,7 +37,7 @@ export class CleanupService {
   professor_last AS (
     SELECT r."professorId"::text AS user_id, MAX(t."createdAt") AS last_activity
     FROM room_entity r
-    JOIN task_entity t ON t."roomId" = r.id
+    JOIN task_entity t ON t."roomId"::text = r.id::text
     GROUP BY r."professorId"
   ),
   last_activity AS (
@@ -197,4 +197,5 @@ export class CleanupService {
     return x;
   }
 }
+
 
