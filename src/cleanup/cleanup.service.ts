@@ -20,7 +20,10 @@ export class CleanupService {
     private readonly usersService: UsersService,
     private readonly mail: MailService,
   ) {}
-  
+
+  /**
+   * days=90, warnDays=7 (avisa faltando 7 dias)
+   */
   async runInactiveCleanup(days = 90, warnDays = 7) {
     const warnThresholdDays = days - warnDays;
 
@@ -71,6 +74,7 @@ export class CleanupService {
       const warnAt = this.addDays(last, warnThresholdDays);
       const deleteAt = this.addDays(last, days);
 
+      // se já tem scheduledDeletionAt, respeita
       if (u.scheduledDeletionAt) {
         if (now >= new Date(u.scheduledDeletionAt)) {
           await this.usersService.removeUser(u.id);
@@ -79,16 +83,18 @@ export class CleanupService {
         continue;
       }
 
+      // período de aviso (>= warnAt e < deleteAt)
       if (!u.inactivityWarnedAt && now >= warnAt && now < deleteAt) {
-        await this.sendInactivityEmail(u.email, u.name, deleteAt);
+        await this.sendInactivityEmail(u.id, u.email, u.name, deleteAt);
         await this.markWarnedAndSchedule(u.id, now, deleteAt);
         warned++;
         continue;
       }
 
+      // passou do deleteAt sem aviso -> garante 7 dias a partir de agora
       if (!u.inactivityWarnedAt && now >= deleteAt) {
         const schedule = this.addDays(now, 7);
-        await this.sendInactivityEmail(u.email, u.name, schedule);
+        await this.sendInactivityEmail(u.id, u.email, u.name, schedule);
         await this.markWarnedAndSchedule(u.id, now, schedule);
         warned++;
       }
@@ -105,7 +111,11 @@ export class CleanupService {
     return new Date(r?.[0]?.createdAt);
   }
 
-  private async markWarnedAndSchedule(userId: string, warnedAt: Date, scheduled: Date) {
+  private async markWarnedAndSchedule(
+    userId: string,
+    warnedAt: Date,
+    scheduled: Date,
+  ) {
     await this.dataSource.query(
       `
       UPDATE user_entity
@@ -117,21 +127,26 @@ export class CleanupService {
     );
   }
 
-  private async sendInactivityEmail(email: string, name: string, deletionDate: Date) {
-    console.log(
-      `[CLEANUP] Aviso -> ${email} (${name}) | exclusão em ${deletionDate.toISOString()}`
-    );
-  }
+  /**
+   * ✅ E-mail real via Resend (MailService)
+   * Monta o link de download apontando para desempenho do aluno (com roomId quando existir)
+   */
+  private async sendInactivityEmail(
+    userId: string,
+    email: string,
+    name: string,
+    deletionDate: Date,
+  ) {
+    const baseUrl =
+      (process.env.APP_WEB_URL || '').trim() || 'https://www.mestrekira.com.br';
 
-  private addDays(d: Date, days: number) {
-    const x = new Date(d);
-    x.setUTCDate(x.getUTCDate() + days);
-    return x;
-  }
+    // tenta descobrir um roomId "relevante" pro usuário (aluno ou professor)
+    const roomId = await this.getAnyRoomIdForUser(userId);
 
-   private async sendInactivityEmail(email: string, name: string, deletionDate: Date) {
-    const baseUrl = (process.env.APP_WEB_URL || '').trim() || 'https://mestrekira.vercel.app';
-    const downloadUrl = `${baseUrl}/export`; // depois você aponta pro endpoint real
+    // seu link real de desempenho (conforme você mostrou)
+    const downloadUrl = roomId
+      ? `${baseUrl}/app/frontend/desempenho.html?roomId=${encodeURIComponent(roomId)}`
+      : `${baseUrl}`; // fallback: homepage
 
     return this.mail.sendInactivityWarning({
       to: email,
@@ -140,6 +155,45 @@ export class CleanupService {
       downloadUrl,
     });
   }
+
+  /**
+   * Pega algum roomId associado ao usuário:
+   * - se for aluno: 1 matrícula recente
+   * - se for professor: 1 sala do professor
+   */
+  private async getAnyRoomIdForUser(userId: string): Promise<string | null> {
+    // tenta aluno (enrollment)
+    const enr = await this.dataSource.query(
+      `
+      SELECT "roomId"
+      FROM enrollment_entity
+      WHERE "studentId" = $1
+      ORDER BY id DESC
+      LIMIT 1
+      `,
+      [userId],
+    );
+    if (enr?.[0]?.roomId) return String(enr[0].roomId);
+
+    // tenta professor (room)
+    const room = await this.dataSource.query(
+      `
+      SELECT id
+      FROM room_entity
+      WHERE "professorId" = $1
+      ORDER BY id DESC
+      LIMIT 1
+      `,
+      [userId],
+    );
+    if (room?.[0]?.id) return String(room[0].id);
+
+    return null;
+  }
+
+  private addDays(d: Date, days: number) {
+    const x = new Date(d);
+    x.setUTCDate(x.getUTCDate() + days);
+    return x;
+  }
 }
-
-
