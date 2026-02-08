@@ -25,11 +25,12 @@ export class MailService {
   }
 
   async sendInactivityWarning(params: {
-    to: string;
-    name: string;
-    deletionDateISO: string;
-    downloadUrl: string;
-  }) {
+  to: string;
+  name: string;
+  deletionDateISO: string;
+  downloadUrl: string;
+  unsubscribeUrl?: string;
+}) {
     const from = process.env.MAIL_FROM?.trim();
     const replyTo = process.env.MAIL_REPLY_TO?.trim(); // opcional
 
@@ -131,3 +132,4 @@ Se você voltar a usar a plataforma, a remoção pode ser evitada automaticament
     return { html, text };
   }
 }
+
