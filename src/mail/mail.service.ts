@@ -25,12 +25,12 @@ export class MailService {
   }
 
   async sendInactivityWarning(params: {
-  to: string;
-  name: string;
-  deletionDateISO: string;
-  downloadUrl: string;
-  unsubscribeUrl?: string;
-}) {
+    to: string;
+    name: string;
+    deletionDateISO: string;
+    downloadUrl: string;
+    unsubscribeUrl?: string;
+  }) {
     const from = process.env.MAIL_FROM?.trim();
     const replyTo = process.env.MAIL_REPLY_TO?.trim(); // opcional
 
@@ -44,10 +44,21 @@ export class MailService {
       return { ok: false, skipped: true, reason: 'RESEND_API_KEY missing' };
     }
 
-    // ✅ assunto menos “agressivo” (ajuda a não cair no spam)
     const subject = 'Sua conta está inativa — veja como evitar a remoção';
 
     const { html, text } = this.buildInactivityContent(params);
+
+    // Headers úteis para reduzir “marcar como spam”
+    const unsubscribeUrl = (params.unsubscribeUrl || '').trim();
+    const headers =
+      unsubscribeUrl.length > 0
+        ? {
+            'List-Unsubscribe': `<${unsubscribeUrl}>`,
+            // Para “one-click” perfeito, seu endpoint deve aceitar POST.
+            // Mesmo com GET, esses headers já ajudam bastante.
+            'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click',
+          }
+        : undefined;
 
     try {
       const result = await this.resend.emails.send({
@@ -55,15 +66,21 @@ export class MailService {
         to: params.to,
         subject,
         html,
-        text, // ✅ importante
+        text,
         replyTo: replyTo || undefined,
+        headers,
         tags: [{ name: 'type', value: 'inactivity-warning' }],
       });
 
-      this.logger.log(`Resend OK: to=${params.to} | result=${JSON.stringify(result)}`);
+      this.logger.log(
+        `Resend OK: to=${params.to} | result=${JSON.stringify(result)}`,
+      );
       return { ok: true, result };
     } catch (err: any) {
-      this.logger.error(`Resend FAIL: ${params.to} | ${err?.message || err}`, err?.stack);
+      this.logger.error(
+        `Resend FAIL: ${params.to} | ${err?.message || err}`,
+        err?.stack,
+      );
       throw err;
     }
   }
@@ -72,23 +89,29 @@ export class MailService {
     name,
     deletionDateISO,
     downloadUrl,
+    unsubscribeUrl,
   }: {
     name: string;
     deletionDateISO: string;
     downloadUrl: string;
+    unsubscribeUrl?: string;
   }) {
     const safeName = escapeHtml((name || '').trim() || 'Olá');
 
-    // ✅ melhor para BR do que UTC (evita “virar o dia” dependendo da hora)
     const date = new Date(deletionDateISO).toLocaleDateString('pt-BR', {
       timeZone: 'America/Sao_Paulo',
     });
 
     const safeUrl = escapeAttr(downloadUrl);
 
-    const preheader = 'Baixe suas redações e gráficos e evite a remoção automática da conta.';
+    const safeUnsub = (unsubscribeUrl || '').trim()
+      ? escapeAttr(unsubscribeUrl)
+      : '';
 
-    const text =
+    const preheader =
+      'Baixe suas redações e gráficos e evite a remoção automática da conta.';
+
+    let text =
 `Olá, ${name || 'tudo bem?'}
 
 Identificamos que sua conta está inativa. Para liberar armazenamento, sua conta está programada para remoção em ${date}.
@@ -100,6 +123,10 @@ Se você voltar a usar a plataforma, a remoção pode ser evitada automaticament
 
 — Mestre Kira
 `;
+
+    if (safeUnsub) {
+      text += `\nPara parar de receber estes avisos: ${unsubscribeUrl}\n`;
+    }
 
     const html = `
 <div style="display:none;max-height:0;overflow:hidden;opacity:0;color:transparent;">
@@ -127,9 +154,19 @@ Se você voltar a usar a plataforma, a remoção pode ser evitada automaticament
   <p style="color:#666;font-size:12px;margin-top:18px;">
     Se você voltar a usar a plataforma, a remoção pode ser evitada automaticamente.
   </p>
+
+  ${
+    safeUnsub
+      ? `
+  <p style="color:#666;font-size:12px;margin-top:10px;">
+    Não quer mais receber este aviso?
+    <a href="${safeUnsub}" style="color:#666;">Cancelar notificações</a>
+  </p>
+  `
+      : ''
+  }
 </div>
 `;
     return { html, text };
   }
 }
-
