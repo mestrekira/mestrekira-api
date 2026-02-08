@@ -201,14 +201,20 @@ export class CleanupService {
   // Unsubscribe token (HMAC)
   // -----------------------------
 
-  private buildUnsubscribeUrl(baseUrl: string, userId: string, email: string) {
-    const token = this.signUnsubscribeToken({
-      uid: userId,
-      email,
-      exp: Date.now() + 30 * 24 * 60 * 60 * 1000, // 30 dias
-    });
-    return `${baseUrl}/api/mail/unsubscribe?token=${encodeURIComponent(token)}`;
-  }
+ private buildUnsubscribeUrl(_baseUrl: string, userId: string, email: string) {
+  const apiUrl =
+    (process.env.API_PUBLIC_URL || '').trim() ||
+    'https://mestrekira-api.onrender.com';
+
+  const token = this.signUnsubscribeToken({
+    uid: userId,
+    email,
+    exp: Date.now() + 30 * 24 * 60 * 60 * 1000, // 30 dias
+  });
+
+  if (!token) return '';
+  return `${apiUrl}/mail/unsubscribe?token=${encodeURIComponent(token)}`;
+}
 
   private signUnsubscribeToken(payload: { uid: string; email: string; exp: number }) {
     const secret =
@@ -226,3 +232,4 @@ export class CleanupService {
     return Buffer.from(raw, 'utf8').toString('base64url');
   }
 }
+
