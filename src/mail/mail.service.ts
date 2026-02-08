@@ -20,7 +20,7 @@ export class MailService {
   private readonly resend: Resend | null;
 
   constructor() {
-    const key = process.env.RESEND_API_KEY?.trim();
+    const key = (process.env.RESEND_API_KEY || '').trim();
     this.resend = key ? new Resend(key) : null;
   }
 
@@ -31,8 +31,8 @@ export class MailService {
     downloadUrl: string;
     unsubscribeUrl?: string;
   }) {
-    const from = process.env.MAIL_FROM?.trim();
-    const replyTo = process.env.MAIL_REPLY_TO?.trim(); // opcional
+    const from = (process.env.MAIL_FROM || '').trim();
+    const replyTo = (process.env.MAIL_REPLY_TO || '').trim(); // opcional
 
     if (!from) {
       this.logger.warn('MAIL_FROM não configurado. Pulando envio.');
@@ -48,39 +48,36 @@ export class MailService {
 
     const { html, text } = this.buildInactivityContent(params);
 
-    // Headers úteis para reduzir “marcar como spam”
-    const unsubscribeUrl = (params.unsubscribeUrl || '').trim();
+    // ✅ Headers úteis para reduzir “marcar como spam”
+    const unsub = (params.unsubscribeUrl || '').trim();
     const headers =
-      unsubscribeUrl.length > 0
+      unsub.length > 0
         ? {
-            'List-Unsubscribe': `<${unsubscribeUrl}>`,
-            // Para “one-click” perfeito, seu endpoint deve aceitar POST.
-            // Mesmo com GET, esses headers já ajudam bastante.
+            'List-Unsubscribe': `<${unsub}>`,
             'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click',
           }
         : undefined;
 
     try {
-      const result = await this.resend.emails.send({
+      const payload: any = {
         from,
         to: params.to,
         subject,
         html,
         text,
-        replyTo: replyTo || undefined,
         headers,
         tags: [{ name: 'type', value: 'inactivity-warning' }],
-      });
+      };
 
-      this.logger.log(
-        `Resend OK: to=${params.to} | result=${JSON.stringify(result)}`,
-      );
+      // ✅ Resend SDK usa reply_to (não replyTo)
+      if (replyTo) payload.reply_to = replyTo;
+
+      const result = await this.resend.emails.send(payload);
+
+      this.logger.log(`Resend OK: to=${params.to} | result=${JSON.stringify(result)}`);
       return { ok: true, result };
     } catch (err: any) {
-      this.logger.error(
-        `Resend FAIL: ${params.to} | ${err?.message || err}`,
-        err?.stack,
-      );
+      this.logger.error(`Resend FAIL: ${params.to} | ${err?.message || err}`, err?.stack);
       throw err;
     }
   }
@@ -105,11 +102,10 @@ export class MailService {
     const safeUrl = escapeAttr(downloadUrl);
 
     const safeUnsub = (unsubscribeUrl || '').trim()
-      ? escapeAttr(unsubscribeUrl)
+      ? escapeAttr(unsubscribeUrl as string)
       : '';
 
-    const preheader =
-      'Baixe suas redações e gráficos e evite a remoção automática da conta.';
+    const preheader = 'Baixe suas redações e gráficos e evite a remoção automática da conta.';
 
     let text =
 `Olá, ${name || 'tudo bem?'}
