@@ -1,4 +1,4 @@
-import { Controller, Post, Query, Headers, UnauthorizedException } from '@nestjs/common';
+import { Body, Controller, Headers, Post, UnauthorizedException } from '@nestjs/common';
 import { MailService } from './mail.service';
 
 @Controller('admin/mail')
@@ -7,24 +7,36 @@ export class MailController {
 
   @Post('test')
   async test(
-    @Query('to') to: string,
-    @Headers('x-cleanup-secret') secret: string,
+    @Headers('x-mail-secret') secret: string,
+    @Body()
+    body: {
+      to: string;
+      name?: string;
+      downloadUrl?: string;
+      deletionDateISO?: string;
+    },
   ) {
-    if (!process.env.CLEANUP_SECRET || secret !== process.env.CLEANUP_SECRET) {
+    const expected = (process.env.MAIL_TEST_SECRET || '').trim();
+    if (!expected || secret !== expected) {
       throw new UnauthorizedException('unauthorized');
     }
 
-    if (!to || !String(to).includes('@')) {
-      return { ok: false, error: 'Informe ?to=seuemail@dominio.com' };
+    const to = (body?.to || '').trim();
+    if (!to) {
+      return { ok: false, error: 'Body "to" é obrigatório' };
     }
 
+    const name = (body?.name || '').trim() || 'Aluno(a)';
     const baseUrl = (process.env.APP_WEB_URL || '').trim() || 'https://www.mestrekira.com.br';
-    const downloadUrl = `${baseUrl}/app/frontend/desempenho.html?roomId=TESTE`;
+    const downloadUrl = (body?.downloadUrl || '').trim() || `${baseUrl}/app/frontend/`;
+    const deletionDateISO =
+      (body?.deletionDateISO || '').trim() ||
+      new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
 
     const result = await this.mail.sendInactivityWarning({
       to,
-      name: 'Teste Mestre Kira',
-      deletionDateISO: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+      name,
+      deletionDateISO,
       downloadUrl,
     });
 
