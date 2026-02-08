@@ -8,7 +8,7 @@ import { EssaysModule } from './essays/essays.module';
 import { EnrollmentsModule } from './enrollments/enrollments.module';
 import { TasksModule } from './tasks/tasks.module';
 import { AnalyticsModule } from './analytics/analytics.module';
-import { CleanupModule } from './cleanup/cleanup.module'; // ✅ ADICIONAR
+import { CleanupModule } from './cleanup/cleanup.module';
 
 const hasDbUrl =
   !!process.env.DATABASE_URL && process.env.DATABASE_URL.trim() !== '';
@@ -17,7 +17,10 @@ const dbSsl =
   (process.env.DB_SSL || '').toLowerCase() === 'true' ||
   (process.env.PGSSLMODE || '').toLowerCase() === 'require';
 
-const sync = (process.env.SYNC_DB || '').toLowerCase() === 'true';
+// ✅ Só permite synchronize fora de production (segurança)
+const isProd = (process.env.NODE_ENV || '').toLowerCase() === 'production';
+const syncRequested = (process.env.SYNC_DB || '').toLowerCase() === 'true';
+const sync = !isProd && syncRequested;
 
 // ✅ config Postgres (Render)
 const postgresConfig: TypeOrmModuleOptions = {
@@ -39,12 +42,14 @@ const sqliteConfig: TypeOrmModuleOptions = {
   synchronize: sync,
 };
 
+console.log('[DB] NODE_ENV:', process.env.NODE_ENV);
 console.log('[DB] hasDbUrl:', hasDbUrl);
 console.log(
   '[DB] DATABASE_URL startsWith postgres:',
   (process.env.DATABASE_URL || '').startsWith('postgres'),
 );
-console.log('[DB] SYNC_DB:', process.env.SYNC_DB);
+console.log('[DB] SYNC_DB (requested):', process.env.SYNC_DB);
+console.log('[DB] synchronize (effective):', sync);
 console.log(
   '[DB] DB_SSL:',
   process.env.DB_SSL,
@@ -62,7 +67,7 @@ console.log(
     EssaysModule,
     EnrollmentsModule,
     AnalyticsModule,
-    CleanupModule, // ✅ agora compila
+    CleanupModule,
   ],
 })
 export class AppModule {}
