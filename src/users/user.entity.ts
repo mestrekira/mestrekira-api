@@ -32,6 +32,23 @@ export class UserEntity {
   @Column({ type: 'timestamptz', nullable: true })
   scheduledDeletionAt: Date | null;
 
+  // ✅ opt-out de e-mails (unsubscribe)
+  @Column({ type: 'boolean', default: false })
+  emailOptOut: boolean;
+
+  // ✅ verificação de e-mail
+  @Column({ type: 'boolean', default: false })
+  emailVerified: boolean;
+
+  @Column({ type: 'timestamptz', nullable: true })
+  emailVerifiedAt: Date | null;
+
+  @Column({ type: 'text', nullable: true })
+  emailVerifyTokenHash: string | null;
+
+  @Column({ type: 'timestamptz', nullable: true })
+  emailVerifyTokenExpiresAt: Date | null;
+
   @CreateDateColumn()
   createdAt: Date;
 
