@@ -17,12 +17,13 @@ export class AuthService {
   private readonly logger = new Logger(AuthService.name);
 
   constructor(
-    private readonly users: UsersService,
-    private readonly mail: MailService,
+  @Inject(forwardRef(() => UsersService))
+  private readonly users: UsersService,
+  private readonly mail: MailService,
 
-    @InjectRepository(UserEntity)
-    private readonly userRepo: Repository<UserEntity>,
-  ) {}
+  @InjectRepository(UserEntity)
+  private readonly userRepo: Repository<UserEntity>,
+) {}
 
   // -----------------------------
   // Helpers
