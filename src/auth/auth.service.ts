@@ -163,11 +163,9 @@ export class AuthService {
     });
 
     if (!user) throw new BadRequestException('Token inválido.');
-
     if (!user.emailVerifyTokenExpiresAt) {
       throw new BadRequestException('Token inválido.');
     }
-
     if (new Date() > new Date(user.emailVerifyTokenExpiresAt)) {
       throw new BadRequestException('Token expirado. Solicite um novo.');
     }
@@ -183,5 +181,72 @@ export class AuthService {
     );
 
     return { ok: true, message: 'E-mail verificado com sucesso.' };
+  }
+
+  // -----------------------------
+  // (Opcional) resetar verificação (se trocar e-mail)
+  // -----------------------------
+  async resetEmailVerification(userId: string) {
+    const id = String(userId || '').trim();
+    if (!id) throw new BadRequestException('userId ausente.');
+
+    const user = await this.userRepo.findOne({ where: { id } });
+    if (!user) throw new NotFoundException('Usuário não encontrado.');
+
+    await this.userRepo.update(
+      { id },
+      {
+        emailVerified: false,
+        emailVerifiedAt: null,
+        emailVerifyTokenHash: null,
+        emailVerifyTokenExpiresAt: null,
+      },
+    );
+
+    return { ok: true };
+  }
+
+  // -----------------------------
+  // ✅ Admin debug: envia verificação por userId
+  // (isso resolve o erro TS2339 do seu controller)
+  // -----------------------------
+  async adminSendVerifyByUserId(userId: string) {
+    const id = String(userId || '').trim();
+    if (!id) throw new BadRequestException('userId ausente.');
+
+    const user = await this.userRepo.findOne({ where: { id } });
+    if (!user) throw new NotFoundException('Usuário não encontrado.');
+
+    if (user.emailVerified) {
+      return { ok: true, message: 'E-mail já verificado.', sentTo: user.email };
+    }
+
+    const rawToken = this.newToken();
+    const tokenHash = this.sha256Hex(rawToken);
+    const expires = new Date(Date.now() + 24 * 60 * 60 * 1000);
+
+    await this.userRepo.update(
+      { id: user.id },
+      {
+        emailVerifyTokenHash: tokenHash,
+        emailVerifyTokenExpiresAt: expires,
+        emailVerified: false,
+        emailVerifiedAt: null,
+      },
+    );
+
+    const verifyUrl = `${this.getApiUrl()}/auth/verify-email?token=${encodeURIComponent(
+      rawToken,
+    )}`;
+
+    await this.mail.sendEmailVerification({
+      to: user.email,
+      name: user.name,
+      verifyUrl,
+    });
+
+    this.logger.log(`Admin verify mail sent to ${user.email} (uid=${user.id})`);
+
+    return { ok: true, sentTo: user.email, verifyUrl };
   }
 }
