@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -10,14 +11,10 @@ import * as crypto from 'crypto';
 import { UserEntity } from '../users/user.entity';
 import { MailService } from '../mail/mail.service';
 
-function normalizeRole(role: any): 'professor' | 'student' {
-  const r = String(role || '').toLowerCase();
-  if (r === 'professor') return 'professor';
-  return 'student';
-}
-
 @Injectable()
 export class AuthService {
+  private readonly logger = new Logger(AuthService.name);
+
   constructor(
     @InjectRepository(UserEntity)
     private readonly userRepo: Repository<UserEntity>,
@@ -25,180 +22,195 @@ export class AuthService {
   ) {}
 
   // -----------------------------
-  // REGISTER
+  // Helpers
   // -----------------------------
-  async registerProfessor(name: string, email: string, password: string) {
-    return this.registerBase({ name, email, password, role: 'professor' });
+  private normalizeEmail(email: string) {
+    return String(email || '').trim().toLowerCase();
   }
 
-  async registerStudent(name: string, email: string, password: string) {
-    return this.registerBase({ name, email, password, role: 'student' });
+  private getApiUrl() {
+    return (
+      (process.env.API_PUBLIC_URL || '').trim() ||
+      'https://mestrekira-api.onrender.com'
+    );
   }
 
-  private async registerBase(params: {
-    name: string;
-    email: string;
-    password: string;
-    role: 'professor' | 'student';
-  }) {
-    const name = String(params.name || '').trim();
-    const email = String(params.email || '').trim().toLowerCase();
-    const password = String(params.password || '');
-
-    if (!name || !email || !password) {
-      throw new BadRequestException('Preencha nome, e-mail e senha.');
-    }
-    if (!email.includes('@')) throw new BadRequestException('E-mail inválido.');
-    if (password.length < 8) {
-      throw new BadRequestException('Senha deve ter no mínimo 8 caracteres.');
-    }
-
-    const exists = await this.userRepo.findOne({ where: { email } });
-    if (exists) throw new BadRequestException('Este e-mail já está cadastrado.');
-
-    // ✅ cria usuário já NÃO verificado
-    const user = this.userRepo.create({
-      name,
-      email,
-      password, // (mantido como está no seu projeto; ideal é hash no futuro)
-      role: params.role,
-      emailVerified: false,
-      emailVerifiedAt: null,
-      emailVerifyTokenHash: null,
-      emailVerifyTokenExpiresAt: null,
-    });
-
-    const saved = await this.userRepo.save(user);
-
-    // ✅ gera token + envia e-mail
-    const verifyUrl = await this.createEmailVerification(saved.id, saved.email, saved.name);
-
-    return {
-      ok: true,
-      id: saved.id,
-      name: saved.name,
-      email: saved.email,
-      role: normalizeRole(saved.role),
-      emailVerified: !!saved.emailVerified,
-      verifyUrl, // útil só pra teste; você pode remover depois
-      message: 'Cadastro criado. Verifique seu e-mail para liberar o login.',
-    };
+  private sha256Hex(input: string) {
+    return crypto.createHash('sha256').update(input).digest('hex');
   }
 
-  // -----------------------------
-  // LOGIN (bloqueia se não verificado)
-  // -----------------------------
-  async login(email: string, password: string) {
-    const e = String(email || '').trim().toLowerCase();
-    const p = String(password || '');
-
-    if (!e || !p) {
-      throw new BadRequestException('Informe e-mail e senha.');
-    }
-
-    const user = await this.userRepo.findOne({ where: { email: e } });
-    if (!user) return { error: 'Usuário ou senha inválidos' };
-    if (user.password !== p) return { error: 'Usuário ou senha inválidos' };
-
-    if (!user.emailVerified) {
-      return {
-        error: 'EMAIL_NOT_VERIFIED',
-        message: 'Verifique seu e-mail para fazer login.',
-      };
-    }
-
-    return {
-      id: user.id,
-      name: user.name,
-      email: user.email,
-      role: normalizeRole(user.role),
-    };
+  private newToken() {
+    return crypto.randomBytes(32).toString('base64url');
   }
 
-  // -----------------------------
-  // EMAIL VERIFICATION
-  // -----------------------------
-  async resendVerification(email: string) {
-    const e = String(email || '').trim().toLowerCase();
-    if (!e) throw new BadRequestException('Informe o e-mail.');
+  private async getUserByEmailOrThrow(email: string) {
+    const normalized = this.normalizeEmail(email);
+    if (!normalized || !normalized.includes('@')) {
+      throw new BadRequestException('E-mail inválido.');
+    }
 
-    const user = await this.userRepo.findOne({ where: { email: e } });
+    const user = await this.userRepo.findOne({ where: { email: normalized } });
     if (!user) throw new NotFoundException('Usuário não encontrado.');
 
+    return user;
+  }
+
+  // -----------------------------
+  // 1) Emitir/reenviar verificação
+  // -----------------------------
+  async requestEmailVerification(email: string) {
+    const user = await this.getUserByEmailOrThrow(email);
+
     if (user.emailVerified) {
-      return { ok: true, message: 'E-mail já está verificado.' };
+      return { ok: true, message: 'E-mail já verificado.' };
     }
 
-    const verifyUrl = await this.createEmailVerification(user.id, user.email, user.name);
-    return { ok: true, message: 'E-mail de verificação reenviado.', verifyUrl };
-  }
+    const rawToken = this.newToken();
+    const tokenHash = this.sha256Hex(rawToken);
+    const expires = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24h
 
-  async verifyEmail(token: string) {
-    const t = String(token || '').trim();
-    if (!t) throw new BadRequestException('Token ausente.');
-
-    const tokenHash = this.hashVerifyToken(t);
-
-    const user = await this.userRepo.findOne({
-      where: { emailVerifyTokenHash: tokenHash },
-    });
-
-    if (!user) {
-      return { ok: false, error: 'Token inválido.' };
-    }
-
-    if (!user.emailVerifyTokenExpiresAt || user.emailVerifyTokenExpiresAt.getTime() < Date.now()) {
-      return { ok: false, error: 'Token expirado. Solicite um novo.' };
-    }
-
-    user.emailVerified = true;
-    user.emailVerifiedAt = new Date();
-    user.emailVerifyTokenHash = null;
-    user.emailVerifyTokenExpiresAt = null;
-
-    await this.userRepo.save(user);
-
-    return { ok: true, message: 'E-mail verificado com sucesso. Login liberado.' };
-  }
-
-  private async createEmailVerification(userId: string, email: string, name: string) {
-    const token = crypto.randomBytes(32).toString('base64url');
-    const tokenHash = this.hashVerifyToken(token);
-
-    const expiresMinutes = Number(process.env.EMAIL_VERIFY_EXPIRES_MIN || '1440'); // 24h
-    const expiresAt = new Date(Date.now() + expiresMinutes * 60 * 1000);
-
-    // ✅ grava hash+expira
     await this.userRepo.update(
-      { id: userId },
+      { id: user.id },
       {
         emailVerifyTokenHash: tokenHash,
-        emailVerifyTokenExpiresAt: expiresAt,
+        emailVerifyTokenExpiresAt: expires,
+        emailVerified: false,
+        emailVerifiedAt: null,
       },
     );
 
-    const apiUrl =
-      (process.env.API_PUBLIC_URL || '').trim() ||
-      'https://mestrekira-api.onrender.com';
-
-    // link público (sem revelar hash)
-    const verifyUrl = `${apiUrl}/auth/verify-email?token=${encodeURIComponent(token)}`;
+    const verifyUrl = `${this.getApiUrl()}/auth/verify-email?token=${encodeURIComponent(
+      rawToken,
+    )}`;
 
     await this.mail.sendEmailVerification({
-      to: email,
-      name,
+      to: user.email,
+      name: user.name,
       verifyUrl,
     });
 
-    return verifyUrl;
+    return {
+      ok: true,
+      message: 'E-mail de verificação enviado.',
+      sentTo: user.email,
+    };
   }
 
-  private hashVerifyToken(token: string) {
-    // ✅ “pepper” opcional pra reforçar
-    const pepper = (process.env.EMAIL_VERIFY_PEPPER || '').trim();
-    return crypto
-      .createHash('sha256')
-      .update(token + pepper)
-      .digest('hex');
+  // -----------------------------
+  // 2) Confirmar verificação
+  // -----------------------------
+  async verifyEmail(token: string) {
+    const raw = String(token || '').trim();
+    if (!raw) throw new BadRequestException('Token ausente.');
+
+    const hash = this.sha256Hex(raw);
+
+    const user = await this.userRepo.findOne({
+      where: { emailVerifyTokenHash: hash },
+    });
+
+    if (!user) {
+      throw new BadRequestException('Token inválido.');
+    }
+
+    if (!user.emailVerifyTokenExpiresAt) {
+      throw new BadRequestException('Token inválido.');
+    }
+
+    if (new Date() > new Date(user.emailVerifyTokenExpiresAt)) {
+      throw new BadRequestException('Token expirado. Solicite um novo.');
+    }
+
+    if (user.emailVerified) {
+      // já verificado — limpa token por segurança
+      await this.userRepo.update(
+        { id: user.id },
+        {
+          emailVerifyTokenHash: null,
+          emailVerifyTokenExpiresAt: null,
+        },
+      );
+
+      return { ok: true, message: 'E-mail já estava verificado.' };
+    }
+
+    await this.userRepo.update(
+      { id: user.id },
+      {
+        emailVerified: true,
+        emailVerifiedAt: new Date(),
+        emailVerifyTokenHash: null,
+        emailVerifyTokenExpiresAt: null,
+      },
+    );
+
+    return { ok: true, message: 'E-mail verificado com sucesso.' };
+  }
+
+  // -----------------------------
+  // 3) (Opcional) resetar verificação ao trocar e-mail
+  //    Use se você quiser chamar isso após updateUser(emailChanged=true)
+  // -----------------------------
+  async resetEmailVerification(userId: string) {
+    const id = String(userId || '').trim();
+    if (!id) throw new BadRequestException('userId ausente.');
+
+    const user = await this.userRepo.findOne({ where: { id } });
+    if (!user) throw new NotFoundException('Usuário não encontrado.');
+
+    await this.userRepo.update(
+      { id },
+      {
+        emailVerified: false,
+        emailVerifiedAt: null,
+        emailVerifyTokenHash: null,
+        emailVerifyTokenExpiresAt: null,
+      },
+    );
+
+    return { ok: true };
+  }
+
+  // -----------------------------
+  // 4) (Opcional) Admin debug: gera e envia verificação por userId
+  // -----------------------------
+  async adminSendVerifyByUserId(userId: string) {
+    const id = String(userId || '').trim();
+    if (!id) throw new BadRequestException('userId ausente.');
+
+    const user = await this.userRepo.findOne({ where: { id } });
+    if (!user) throw new NotFoundException('Usuário não encontrado.');
+
+    if (user.emailVerified) {
+      return { ok: true, message: 'E-mail já verificado.', sentTo: user.email };
+    }
+
+    const rawToken = this.newToken();
+    const tokenHash = this.sha256Hex(rawToken);
+    const expires = new Date(Date.now() + 24 * 60 * 60 * 1000);
+
+    await this.userRepo.update(
+      { id: user.id },
+      {
+        emailVerifyTokenHash: tokenHash,
+        emailVerifyTokenExpiresAt: expires,
+        emailVerified: false,
+        emailVerifiedAt: null,
+      },
+    );
+
+    const verifyUrl = `${this.getApiUrl()}/auth/verify-email?token=${encodeURIComponent(
+      rawToken,
+    )}`;
+
+    await this.mail.sendEmailVerification({
+      to: user.email,
+      name: user.name,
+      verifyUrl,
+    });
+
+    this.logger.log(`Admin verify mail sent to ${user.email} (uid=${user.id})`);
+
+    return { ok: true, sentTo: user.email, verifyUrl };
   }
 }
