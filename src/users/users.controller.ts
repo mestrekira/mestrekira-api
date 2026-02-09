@@ -48,6 +48,14 @@ async login(@Body('email') email: string, @Body('password') password: string) {
       return { error: 'Usuário ou senha inválidos' };
     }
 
+    // ✅ BLOQUEIA até verificar e-mail
+    if (!user.emailVerified) {
+      return {
+        error: 'Confirme seu e-mail para acessar.',
+        code: 'EMAIL_NOT_VERIFIED',
+      };
+    }
+
     return {
       id: user.id,
       name: user.name,
@@ -55,8 +63,8 @@ async login(@Body('email') email: string, @Body('password') password: string) {
       role: (user.role || '').toLowerCase(),
     };
   } catch (err) {
-    console.error('LOGIN ERROR:', err); // <- isso vai aparecer no Render
-    throw err; // deixa o Nest retornar 500, mas agora com stack no log
+    console.error('LOGIN ERROR:', err);
+    throw err;
   }
 }
 
@@ -92,4 +100,5 @@ async login(@Body('email') email: string, @Body('password') password: string) {
     return this.usersService.findAll();
   }
 }
+
 
