@@ -9,7 +9,7 @@ import { RoomEntity } from '../rooms/room.entity';
 import { EnrollmentEntity } from '../enrollments/enrollment.entity';
 import { TaskEntity } from '../tasks/task.entity';
 
-import { MailModule } from '../mail/mail.module'; // ✅ IMPORTAR
+import { AuthModule } from '../auth/auth.module'; // ✅
 
 @Module({
   imports: [
@@ -20,7 +20,7 @@ import { MailModule } from '../mail/mail.module'; // ✅ IMPORTAR
       EnrollmentEntity,
       TaskEntity,
     ]),
-    MailModule, // ✅ ADICIONAR
+    AuthModule, // ✅ necessário para injetar AuthService no UsersController
   ],
   controllers: [UsersController],
   providers: [UsersService],
