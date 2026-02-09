@@ -9,7 +9,7 @@ import { RoomEntity } from '../rooms/room.entity';
 import { EnrollmentEntity } from '../enrollments/enrollment.entity';
 import { TaskEntity } from '../tasks/task.entity';
 
-import { AuthModule } from '../auth/auth.module'; // ✅
+import { AuthModule } from '../auth/auth.module';
 
 @Module({
   imports: [
@@ -20,7 +20,7 @@ import { AuthModule } from '../auth/auth.module'; // ✅
       EnrollmentEntity,
       TaskEntity,
     ]),
-    AuthModule, // ✅ necessário para injetar AuthService no UsersController
+    AuthModule,
   ],
   controllers: [UsersController],
   providers: [UsersService],
