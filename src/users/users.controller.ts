@@ -38,22 +38,13 @@ export class UsersController {
     return this.usersService.createStudent(name, email, password);
   }
 
-  // ✅ LOGIN por e-mail (padrão aluno e professor)
-@Post('login')
-async login(@Body('email') email: string, @Body('password') password: string) {
-  try {
+  // ✅ LOGIN por e-mail (AGORA BLOQUEIA se não verificou)
+  @Post('login')
+  async login(@Body('email') email: string, @Body('password') password: string) {
     const user = await this.usersService.validateUser(email, password);
 
     if (!user) {
       return { error: 'Usuário ou senha inválidos' };
-    }
-
-    // ✅ BLOQUEIA até verificar e-mail
-    if (!user.emailVerified) {
-      return {
-        error: 'Confirme seu e-mail para acessar.',
-        code: 'EMAIL_NOT_VERIFIED',
-      };
     }
 
     return {
@@ -62,20 +53,20 @@ async login(@Body('email') email: string, @Body('password') password: string) {
       email: user.email,
       role: (user.role || '').toLowerCase(),
     };
-  } catch (err) {
-    console.error('LOGIN ERROR:', err);
-    throw err;
   }
-}
 
+  // ✅ reenviar verificação
+  @Post('resend-verification')
+  async resend(@Body('email') email: string) {
+    if (!email) throw new BadRequestException('Informe o e-mail.');
+    return this.usersService.resendVerification(String(email).trim());
+  }
 
-  // ✅ usado pelo menu-perfil.js (GET /users/:id)
   @Get(':id')
   findOne(@Param('id') id: string) {
     return this.usersService.findById(id);
   }
 
-  // ✅ usado pelo menu-perfil.js (PATCH /users/:id)
   @Patch(':id')
   update(
     @Param('id') id: string,
@@ -88,17 +79,13 @@ async login(@Body('email') email: string, @Body('password') password: string) {
     );
   }
 
-  // ✅ usado pelo menu-perfil.js (DELETE /users/:id)
   @Delete(':id')
   remove(@Param('id') id: string) {
     return this.usersService.removeUser(id);
   }
 
-  // (se você usa esse endpoint pra debug, ok manter)
   @Get()
   findAll() {
     return this.usersService.findAll();
   }
 }
-
-
