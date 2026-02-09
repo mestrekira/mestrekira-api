@@ -5,12 +5,14 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, In, Repository } from 'typeorm';
+import * as crypto from 'crypto';
 
 import { UserEntity } from './user.entity';
 import { EssayEntity } from '../essays/essay.entity';
 import { RoomEntity } from '../rooms/room.entity';
 import { EnrollmentEntity } from '../enrollments/enrollment.entity';
 import { TaskEntity } from '../tasks/task.entity';
+import { MailService } from '../mail/mail.service';
 
 function normalizeRole(role: any): 'professor' | 'student' {
   const r = String(role || '').toLowerCase();
@@ -39,30 +41,25 @@ export class UsersService {
     private readonly taskRepo: Repository<TaskEntity>,
 
     private readonly dataSource: DataSource,
+    private readonly mail: MailService,
   ) {}
 
   async createProfessor(name: string, email: string, password: string) {
-    email = String(email || '').trim().toLowerCase();
-
-    if (!email.includes('@')) throw new BadRequestException('E-mail inválido.');
-    if (!password || password.length < 8) {
-      throw new BadRequestException('Senha deve ter no mínimo 8 caracteres.');
-    }
-
-    const exists = await this.userRepo.findOne({ where: { email } });
-    if (exists) throw new BadRequestException('Este e-mail já está cadastrado.');
-
-    const user = this.userRepo.create({
-      name,
-      email,
-      password,
-      role: 'professor',
-    });
-
-    return this.userRepo.save(user);
+    return this.createUserWithVerification({ name, email, password, role: 'professor' });
   }
 
   async createStudent(name: string, email: string, password: string) {
+    return this.createUserWithVerification({ name, email, password, role: 'student' });
+  }
+
+  private async createUserWithVerification(params: {
+    name: string;
+    email: string;
+    password: string;
+    role: 'student' | 'professor';
+  }) {
+    let { name, email, password, role } = params;
+
     email = String(email || '').trim().toLowerCase();
 
     if (!email.includes('@')) throw new BadRequestException('E-mail inválido.');
@@ -73,14 +70,47 @@ export class UsersService {
     const exists = await this.userRepo.findOne({ where: { email } });
     if (exists) throw new BadRequestException('Este e-mail já está cadastrado.');
 
+    // token (cru) e hash
+    const token = crypto.randomBytes(32).toString('base64url');
+    const tokenHash = crypto.createHash('sha256').update(token).digest('base64url');
+    const expires = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24h
+
     const user = this.userRepo.create({
       name,
       email,
       password,
-      role: 'student',
+      role,
+      emailVerified: false,
+      emailVerifiedAt: null,
+      emailVerifyTokenHash: tokenHash,
+      emailVerifyTokenExpiresAt: expires,
+      emailOptOut: false,
     });
 
-    return this.userRepo.save(user);
+    const saved = await this.userRepo.save(user);
+
+    // link de verificação
+    const apiUrl =
+      (process.env.API_PUBLIC_URL || '').trim() ||
+      'https://mestrekira-api.onrender.com';
+
+    const verifyUrl = `${apiUrl}/mail/verify-email?token=${encodeURIComponent(token)}`;
+
+    await this.mail.sendEmailVerification({
+      to: email,
+      name,
+      verifyUrl,
+    });
+
+    // ⚠️ não retorne senha
+    return {
+      ok: true,
+      id: saved.id,
+      email: saved.email,
+      role: normalizeRole(saved.role),
+      emailVerified: saved.emailVerified,
+      message: 'Cadastro criado. Verifique seu e-mail para liberar o login.',
+    };
   }
 
   async findByEmail(email: string) {
@@ -110,6 +140,7 @@ export class UsersService {
       name: user.name,
       email: user.email,
       role: normalizeRole(user.role),
+      emailVerified: !!user.emailVerified,
     };
   }
 
@@ -125,7 +156,28 @@ export class UsersService {
       if (exists && exists.id !== id) {
         throw new BadRequestException('Este e-mail já está em uso.');
       }
+
+      // ⚠️ se mudar e-mail, volta a exigir verificação
+      const token = crypto.randomBytes(32).toString('base64url');
+      const tokenHash = crypto.createHash('sha256').update(token).digest('base64url');
+      const expires = new Date(Date.now() + 24 * 60 * 60 * 1000);
+
       user.email = newEmail;
+      user.emailVerified = false;
+      user.emailVerifiedAt = null;
+      user.emailVerifyTokenHash = tokenHash;
+      user.emailVerifyTokenExpiresAt = expires;
+
+      const apiUrl =
+        (process.env.API_PUBLIC_URL || '').trim() ||
+        'https://mestrekira-api.onrender.com';
+      const verifyUrl = `${apiUrl}/mail/verify-email?token=${encodeURIComponent(token)}`;
+
+      await this.mail.sendEmailVerification({
+        to: newEmail,
+        name: user.name,
+        verifyUrl,
+      });
     }
 
     if (password) {
@@ -139,11 +191,7 @@ export class UsersService {
     return { ok: true };
   }
 
-  /**
-   * ✅ Exclusão "limpa" com transação (libera armazenamento)
-   * - student: apaga redações + matrículas e depois o usuário
-   * - professor: apaga salas do professor e tudo abaixo (tarefas, redações, matrículas) e depois o usuário
-   */
+  // ... (seu removeUser fica igual)
   async removeUser(id: string) {
     const user = await this.userRepo.findOne({ where: { id } });
     if (!user) throw new NotFoundException('Usuário não encontrado');
@@ -152,29 +200,19 @@ export class UsersService {
 
     await this.dataSource.transaction(async (manager) => {
       if (role === 'student') {
-        // 1) apaga redações do aluno
         await manager.delete(EssayEntity, { studentId: id });
-
-        // 2) apaga matrículas do aluno
         await manager.delete(EnrollmentEntity, { studentId: id });
-
-        // 3) apaga usuário
         await manager.delete(UserEntity, { id });
-
         return;
       }
 
-      // role === 'professor'
-      // 1) pega salas do professor
       const rooms = await manager.find(RoomEntity, { where: { professorId: id } });
       const roomIds = rooms.map((r) => r.id);
 
       if (roomIds.length > 0) {
-        // 2) pega tarefas dessas salas
         const tasks = await manager.find(TaskEntity, { where: { roomId: In(roomIds) } });
         const taskIds = tasks.map((t) => t.id);
 
-        // 3) apaga redações das tarefas
         if (taskIds.length > 0) {
           await manager
             .createQueryBuilder()
@@ -184,17 +222,11 @@ export class UsersService {
             .execute();
         }
 
-        // 4) apaga tarefas
         await manager.delete(TaskEntity, { roomId: In(roomIds) });
-
-        // 5) apaga matrículas dessas salas
         await manager.delete(EnrollmentEntity, { roomId: In(roomIds) });
-
-        // 6) apaga salas
         await manager.delete(RoomEntity, { id: In(roomIds) });
       }
 
-      // 7) apaga usuário professor
       await manager.delete(UserEntity, { id });
     });
 
