@@ -24,6 +24,9 @@ export class MailService {
     this.resend = key ? new Resend(key) : null;
   }
 
+  // -----------------------------
+  // 1) Inactivity (você já usa)
+  // -----------------------------
   async sendInactivityWarning(params: {
     to: string;
     name: string;
@@ -32,13 +35,12 @@ export class MailService {
     unsubscribeUrl?: string;
   }) {
     const from = (process.env.MAIL_FROM || '').trim();
-    const replyTo = (process.env.MAIL_REPLY_TO || '').trim(); // opcional
+    const replyTo = (process.env.MAIL_REPLY_TO || '').trim();
 
     if (!from) {
       this.logger.warn('MAIL_FROM não configurado. Pulando envio.');
       return { ok: false, skipped: true, reason: 'MAIL_FROM missing' };
     }
-
     if (!this.resend) {
       this.logger.warn('RESEND_API_KEY não configurado. Pulando envio.');
       return { ok: false, skipped: true, reason: 'RESEND_API_KEY missing' };
@@ -48,7 +50,6 @@ export class MailService {
 
     const { html, text } = this.buildInactivityContent(params);
 
-    // ✅ Headers úteis para reduzir “marcar como spam”
     const unsub = (params.unsubscribeUrl || '').trim();
     const headers =
       unsub.length > 0
@@ -68,12 +69,9 @@ export class MailService {
         headers,
         tags: [{ name: 'type', value: 'inactivity-warning' }],
       };
-
-      // ✅ Resend SDK usa reply_to (não replyTo)
       if (replyTo) payload.reply_to = replyTo;
 
       const result = await this.resend.emails.send(payload);
-
       this.logger.log(`Resend OK: to=${params.to} | result=${JSON.stringify(result)}`);
       return { ok: true, result };
     } catch (err: any) {
@@ -161,6 +159,98 @@ Se você voltar a usar a plataforma, a remoção pode ser evitada automaticament
   `
       : ''
   }
+</div>
+`;
+    return { html, text };
+  }
+
+  // -----------------------------
+  // 2) Email Verification (NOVO)
+  // -----------------------------
+  async sendEmailVerification(params: {
+    to: string;
+    name: string;
+    verifyUrl: string;
+  }) {
+    const from = (process.env.MAIL_FROM || '').trim();
+    const replyTo = (process.env.MAIL_REPLY_TO || '').trim();
+
+    if (!from) {
+      this.logger.warn('MAIL_FROM não configurado. Pulando envio.');
+      return { ok: false, skipped: true, reason: 'MAIL_FROM missing' };
+    }
+    if (!this.resend) {
+      this.logger.warn('RESEND_API_KEY não configurado. Pulando envio.');
+      return { ok: false, skipped: true, reason: 'RESEND_API_KEY missing' };
+    }
+
+    const subject = 'Confirme seu e-mail para acessar o Mestre Kira';
+    const { html, text } = this.buildVerifyEmailContent(params);
+
+    try {
+      const payload: any = {
+        from,
+        to: params.to,
+        subject,
+        html,
+        text,
+        tags: [{ name: 'type', value: 'email-verify' }],
+      };
+      if (replyTo) payload.reply_to = replyTo;
+
+      const result = await this.resend.emails.send(payload);
+      this.logger.log(`VerifyEmail OK: to=${params.to} | result=${JSON.stringify(result)}`);
+      return { ok: true, result };
+    } catch (err: any) {
+      this.logger.error(`VerifyEmail FAIL: ${params.to} | ${err?.message || err}`, err?.stack);
+      throw err;
+    }
+  }
+
+  private buildVerifyEmailContent({
+    name,
+    verifyUrl,
+  }: {
+    name: string;
+    verifyUrl: string;
+  }) {
+    const safeName = escapeHtml((name || '').trim() || 'Olá');
+    const safeUrl = escapeAttr(verifyUrl);
+
+    const preheader = 'Confirme seu e-mail para liberar o acesso à sua conta.';
+
+    const text =
+`Olá, ${name || 'tudo bem?'}
+
+Para acessar sua conta no Mestre Kira, confirme seu e-mail clicando no link abaixo:
+${verifyUrl}
+
+Se você não criou esta conta, ignore este e-mail.
+
+— Mestre Kira
+`;
+
+    const html = `
+<div style="display:none;max-height:0;overflow:hidden;opacity:0;color:transparent;">
+  ${escapeHtml(preheader)}
+</div>
+
+<div style="font-family: Arial, sans-serif; line-height: 1.5;">
+  <h2 style="margin: 0 0 12px;">${safeName}, confirme seu e-mail</h2>
+
+  <p style="margin:0 0 12px;">
+    Para acessar sua conta no <b>Mestre Kira</b>, confirme seu e-mail:
+  </p>
+
+  <p style="margin:0 0 16px;">
+    <a href="${safeUrl}" style="display:inline-block;padding:10px 14px;border-radius:8px;background:#111;color:#fff;text-decoration:none;">
+      Confirmar e-mail
+    </a>
+  </p>
+
+  <p style="color:#666;font-size:12px;margin-top:18px;">
+    Se você não criou esta conta, ignore este e-mail.
+  </p>
 </div>
 `;
     return { html, text };
