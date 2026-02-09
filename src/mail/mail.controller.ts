@@ -149,21 +149,14 @@ export class MailPublicController {
     const { uid, email } = parsed;
 
     // grava opt-out (email case-insensitive)
-    const res = await this.dataSource.query(
-      `
-      UPDATE user_entity
-      SET "emailOptOut" = true
-      WHERE id = $1 AND LOWER(email) = LOWER($2)
-      `,
-      [uid, email],
-    );
-
-    // alguns drivers retornam rowCount; outros não. Não quebra, só informa.
-    return {
-      ok: true,
-      message: 'Notificações canceladas com sucesso.',
-      updated: (res as any)?.rowCount ?? null,
-    };
+   const res = await this.dataSource.query(
+  `
+  UPDATE user_entity
+  SET "emailOptOut" = true
+  WHERE id = $1 AND LOWER(email) = LOWER($2)
+  `,
+  [uid, email],
+);
   }
 
   private verifyUnsubscribeToken(token: string):
