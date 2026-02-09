@@ -54,4 +54,12 @@ export class UserEntity {
 
   @UpdateDateColumn()
   updatedAt: Date;
+
+  // ✅ recuperação de senha
+  @Column({ type: 'text', nullable: true })
+  passwordResetTokenHash: string | null;
+
+  @Column({ type: 'timestamptz', nullable: true })
+  passwordResetTokenExpiresAt: Date | null;
 }
+
