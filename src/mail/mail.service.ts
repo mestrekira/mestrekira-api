@@ -255,4 +255,86 @@ Se você não criou esta conta, ignore este e-mail.
 `;
     return { html, text };
   }
+
+    // -----------------------------
+  // 3) Password Reset (NOVO)
+  // -----------------------------
+  async sendPasswordReset(params: {
+    to: string;
+    name: string;
+    resetUrl: string;
+  }) {
+    const from = (process.env.MAIL_FROM || '').trim();
+    const replyTo = (process.env.MAIL_REPLY_TO || '').trim();
+
+    if (!from) {
+      this.logger.warn('MAIL_FROM não configurado. Pulando envio.');
+      return { ok: false, skipped: true, reason: 'MAIL_FROM missing' };
+    }
+    if (!this.resend) {
+      this.logger.warn('RESEND_API_KEY não configurado. Pulando envio.');
+      return { ok: false, skipped: true, reason: 'RESEND_API_KEY missing' };
+    }
+
+    const subject = 'Redefina sua senha no Mestre Kira';
+
+    const safeName = escapeHtml((params.name || '').trim() || 'Olá');
+    const safeUrl = escapeAttr(params.resetUrl);
+
+    const text =
+`Olá, ${params.name || 'tudo bem?'}
+
+Recebemos uma solicitação para redefinir sua senha.
+Clique no link abaixo para criar uma nova senha:
+${params.resetUrl}
+
+Se você não solicitou isso, ignore este e-mail.
+
+— Mestre Kira
+`;
+
+    const html = `
+<div style="display:none;max-height:0;overflow:hidden;opacity:0;color:transparent;">
+  Redefina sua senha no Mestre Kira.
+</div>
+
+<div style="font-family: Arial, sans-serif; line-height: 1.5;">
+  <h2 style="margin: 0 0 12px;">${safeName}, redefina sua senha</h2>
+
+  <p style="margin:0 0 12px;">
+    Recebemos uma solicitação para redefinir sua senha.
+  </p>
+
+  <p style="margin:0 0 16px;">
+    <a href="${safeUrl}" style="display:inline-block;padding:10px 14px;border-radius:8px;background:#111;color:#fff;text-decoration:none;">
+      Redefinir senha
+    </a>
+  </p>
+
+  <p style="color:#666;font-size:12px;margin-top:18px;">
+    Se você não solicitou isso, ignore este e-mail.
+  </p>
+</div>
+`;
+
+    try {
+      const payload: any = {
+        from,
+        to: params.to,
+        subject,
+        html,
+        text,
+        tags: [{ name: 'type', value: 'password-reset' }],
+      };
+      if (replyTo) payload.reply_to = replyTo;
+
+      const result = await this.resend.emails.send(payload);
+      this.logger.log(`PasswordReset OK: to=${params.to} | result=${JSON.stringify(result)}`);
+      return { ok: true, result };
+    } catch (err: any) {
+      this.logger.error(`PasswordReset FAIL: ${params.to} | ${err?.message || err}`, err?.stack);
+      throw err;
+    }
+  }
 }
+
