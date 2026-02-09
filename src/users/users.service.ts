@@ -2,6 +2,7 @@ import {
   Injectable,
   BadRequestException,
   NotFoundException,
+  ForbiddenException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, In, Repository } from 'typeorm';
@@ -41,18 +42,22 @@ export class UsersService {
     private readonly taskRepo: Repository<TaskEntity>,
 
     private readonly dataSource: DataSource,
-    private readonly mail: MailService,
+    private readonly mail: MailService, // ✅ precisa do UsersModule importar MailModule
   ) {}
 
+  // -----------------------------
+  // Cadastro
+  // -----------------------------
+
   async createProfessor(name: string, email: string, password: string) {
-    return this.createUserWithVerification({ name, email, password, role: 'professor' });
+    return this.createUserBase({ name, email, password, role: 'professor' });
   }
 
   async createStudent(name: string, email: string, password: string) {
-    return this.createUserWithVerification({ name, email, password, role: 'student' });
+    return this.createUserBase({ name, email, password, role: 'student' });
   }
 
-  private async createUserWithVerification(params: {
+  private async createUserBase(params: {
     name: string;
     email: string;
     password: string;
@@ -61,7 +66,9 @@ export class UsersService {
     let { name, email, password, role } = params;
 
     email = String(email || '').trim().toLowerCase();
+    name = String(name || '').trim();
 
+    if (!name) throw new BadRequestException('Preencha o nome.');
     if (!email.includes('@')) throw new BadRequestException('E-mail inválido.');
     if (!password || password.length < 8) {
       throw new BadRequestException('Senha deve ter no mínimo 8 caracteres.');
@@ -70,10 +77,8 @@ export class UsersService {
     const exists = await this.userRepo.findOne({ where: { email } });
     if (exists) throw new BadRequestException('Este e-mail já está cadastrado.');
 
-    // token (cru) e hash
-    const token = crypto.randomBytes(32).toString('base64url');
-    const tokenHash = crypto.createHash('sha256').update(token).digest('base64url');
-    const expires = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24h
+    // ✅ token de verificação (hash + expiração)
+    const { token, tokenHash, expiresAt } = this.generateEmailVerifyToken();
 
     const user = this.userRepo.create({
       name,
@@ -83,43 +88,48 @@ export class UsersService {
       emailVerified: false,
       emailVerifiedAt: null,
       emailVerifyTokenHash: tokenHash,
-      emailVerifyTokenExpiresAt: expires,
+      emailVerifyTokenExpiresAt: expiresAt,
       emailOptOut: false,
     });
 
     const saved = await this.userRepo.save(user);
 
-    // link de verificação
+    // ✅ envia e-mail de verificação (se Resend/MAIL_FROM estiverem ok)
     const apiUrl =
       (process.env.API_PUBLIC_URL || '').trim() ||
       'https://mestrekira-api.onrender.com';
 
-    const verifyUrl = `${apiUrl}/mail/verify-email?token=${encodeURIComponent(token)}`;
+    const verifyUrl = `${apiUrl}/auth/verify-email?token=${encodeURIComponent(token)}`;
 
-    await this.mail.sendEmailVerification({
-      to: email,
-      name,
-      verifyUrl,
-    });
+    try {
+      await this.mail.sendEmailVerification({
+        to: saved.email,
+        name: saved.name,
+        verifyUrl,
+      });
+    } catch {
+      // não impede cadastro; mas usuário continuará bloqueado até verificar
+    }
 
-    // ⚠️ não retorne senha
     return {
       ok: true,
       id: saved.id,
+      name: saved.name,
       email: saved.email,
       role: normalizeRole(saved.role),
       emailVerified: saved.emailVerified,
-      message: 'Cadastro criado. Verifique seu e-mail para liberar o login.',
+      message:
+        'Cadastro criado. Verifique seu e-mail para liberar o acesso.',
     };
   }
+
+  // -----------------------------
+  // Login / validação
+  // -----------------------------
 
   async findByEmail(email: string) {
     email = String(email || '').trim().toLowerCase();
     return this.userRepo.findOne({ where: { email } });
-  }
-
-  async findAll() {
-    return this.userRepo.find();
   }
 
   async validateUser(email: string, password: string) {
@@ -127,8 +137,51 @@ export class UsersService {
     if (!user) return null;
     if (user.password !== password) return null;
 
+    // ✅ BLOQUEIA login se não verificou
+    if (!user.emailVerified) {
+      throw new ForbiddenException(
+        'Confirme seu e-mail para acessar sua conta.',
+      );
+    }
+
     user.role = normalizeRole(user.role);
     return user;
+  }
+
+  async resendVerification(email: string) {
+    const user = await this.findByEmail(email);
+    if (!user) throw new NotFoundException('Usuário não encontrado.');
+
+    if (user.emailVerified) {
+      return { ok: true, message: 'Seu e-mail já está verificado.' };
+    }
+
+    const { token, tokenHash, expiresAt } = this.generateEmailVerifyToken();
+    user.emailVerifyTokenHash = tokenHash;
+    user.emailVerifyTokenExpiresAt = expiresAt;
+    await this.userRepo.save(user);
+
+    const apiUrl =
+      (process.env.API_PUBLIC_URL || '').trim() ||
+      'https://mestrekira-api.onrender.com';
+
+    const verifyUrl = `${apiUrl}/auth/verify-email?token=${encodeURIComponent(token)}`;
+
+    await this.mail.sendEmailVerification({
+      to: user.email,
+      name: user.name,
+      verifyUrl,
+    });
+
+    return { ok: true, message: 'E-mail de verificação reenviado.' };
+  }
+
+  // -----------------------------
+  // Usuário / perfil (mantém seu padrão)
+  // -----------------------------
+
+  async findAll() {
+    return this.userRepo.find();
   }
 
   async findById(id: string) {
@@ -157,27 +210,12 @@ export class UsersService {
         throw new BadRequestException('Este e-mail já está em uso.');
       }
 
-      // ⚠️ se mudar e-mail, volta a exigir verificação
-      const token = crypto.randomBytes(32).toString('base64url');
-      const tokenHash = crypto.createHash('sha256').update(token).digest('base64url');
-      const expires = new Date(Date.now() + 24 * 60 * 60 * 1000);
-
+      // se trocar e-mail, volta a exigir verificação
       user.email = newEmail;
       user.emailVerified = false;
       user.emailVerifiedAt = null;
-      user.emailVerifyTokenHash = tokenHash;
-      user.emailVerifyTokenExpiresAt = expires;
-
-      const apiUrl =
-        (process.env.API_PUBLIC_URL || '').trim() ||
-        'https://mestrekira-api.onrender.com';
-      const verifyUrl = `${apiUrl}/mail/verify-email?token=${encodeURIComponent(token)}`;
-
-      await this.mail.sendEmailVerification({
-        to: newEmail,
-        name: user.name,
-        verifyUrl,
-      });
+      user.emailVerifyTokenHash = null;
+      user.emailVerifyTokenExpiresAt = null;
     }
 
     if (password) {
@@ -191,7 +229,10 @@ export class UsersService {
     return { ok: true };
   }
 
-  // ... (seu removeUser fica igual)
+  // -----------------------------
+  // Exclusão "limpa" (seu código)
+  // -----------------------------
+
   async removeUser(id: string) {
     const user = await this.userRepo.findOne({ where: { id } });
     if (!user) throw new NotFoundException('Usuário não encontrado');
@@ -231,5 +272,28 @@ export class UsersService {
     });
 
     return { ok: true };
+  }
+
+  // -----------------------------
+  // Helpers verificação
+  // -----------------------------
+
+  private generateEmailVerifyToken() {
+    const secret = (process.env.MAIL_VERIFY_SECRET || '').trim();
+    if (!secret) {
+      // sem secret, ainda gera token, mas você deve configurar no Render
+      // (não falha cadastro para não quebrar; apenas será difícil validar)
+    }
+
+    const token = crypto.randomBytes(32).toString('base64url');
+
+    // hash = sha256(token + secret) (melhor do que só token)
+    const tokenHash = crypto
+      .createHash('sha256')
+      .update(`${token}.${secret}`)
+      .digest('hex');
+
+    const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24h
+    return { token, tokenHash, expiresAt };
   }
 }
