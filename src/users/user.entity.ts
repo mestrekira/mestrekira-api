@@ -32,7 +32,7 @@ export class UserEntity {
   @Column({ type: 'timestamptz', nullable: true })
   scheduledDeletionAt: Date | null;
 
-  // ✅ opt-out de e-mails (unsubscribe)
+  // ✅ opt-out de e-mails (já existe no seu banco)
   @Column({ type: 'boolean', default: false })
   emailOptOut: boolean;
 
