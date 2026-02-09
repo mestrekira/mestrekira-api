@@ -9,10 +9,14 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { UsersService } from './users.service';
+import { AuthService } from '../auth/auth.service';
 
 @Controller('users')
 export class UsersController {
-  constructor(private readonly usersService: UsersService) {}
+  constructor(
+    private readonly usersService: UsersService,
+    private readonly auth: AuthService,
+  ) {}
 
   @Post('professor')
   createProfessor(
@@ -23,7 +27,7 @@ export class UsersController {
     if (!name || !email || !password) {
       throw new BadRequestException('Preencha nome, e-mail e senha.');
     }
-    return this.usersService.createProfessor(name, email, password);
+    return this.auth.registerProfessor(name, email, password);
   }
 
   @Post('student')
@@ -35,38 +39,13 @@ export class UsersController {
     if (!name || !email || !password) {
       throw new BadRequestException('Preencha nome, e-mail e senha.');
     }
-    return this.usersService.createStudent(name, email, password);
+    return this.auth.registerStudent(name, email, password);
   }
 
-  // ✅ LOGIN por e-mail (bloqueia se não verificado)
+  // ✅ LOGIN agora bloqueia se não verificado
   @Post('login')
   async login(@Body('email') email: string, @Body('password') password: string) {
-    try {
-      const user = await this.usersService.validateUser(email, password);
-
-      if (!user) {
-        return { ok: false, error: 'Usuário ou senha inválidos' };
-      }
-
-      if (!user.emailVerified) {
-        return {
-          ok: false,
-          error: 'Confirme seu e-mail para acessar sua conta.',
-          code: 'EMAIL_NOT_VERIFIED',
-        };
-      }
-
-      return {
-        ok: true,
-        id: user.id,
-        name: user.name,
-        email: user.email,
-        role: (user.role || '').toLowerCase(),
-      };
-    } catch (err) {
-      console.error('LOGIN ERROR:', err);
-      throw err;
-    }
+    return this.auth.login(email, password);
   }
 
   @Get(':id')
@@ -79,7 +58,11 @@ export class UsersController {
     @Param('id') id: string,
     @Body() body: { email?: string; password?: string },
   ) {
-    return this.usersService.updateUser(id, body?.email?.trim(), body?.password);
+    return this.usersService.updateUser(
+      id,
+      body?.email?.trim(),
+      body?.password,
+    );
   }
 
   @Delete(':id')
