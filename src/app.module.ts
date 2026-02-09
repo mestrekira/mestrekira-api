@@ -3,6 +3,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { TypeOrmModuleOptions } from '@nestjs/typeorm';
 
 import { UsersModule } from './users/users.module';
+import { AuthModule } from './auth/auth.module';
 import { RoomsModule } from './rooms/rooms.module';
 import { EssaysModule } from './essays/essays.module';
 import { EnrollmentsModule } from './enrollments/enrollments.module';
@@ -62,6 +63,7 @@ console.log(
     TypeOrmModule.forRoot(hasDbUrl ? postgresConfig : sqliteConfig),
 
     UsersModule,
+    AuthModule,
     RoomsModule,
     TasksModule,
     EssaysModule,
@@ -71,3 +73,4 @@ console.log(
   ],
 })
 export class AppModule {}
+
