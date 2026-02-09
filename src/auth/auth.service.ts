@@ -1,5 +1,7 @@
 import {
   BadRequestException,
+  forwardRef,
+  Inject,
   Injectable,
   Logger,
   NotFoundException,
@@ -17,13 +19,14 @@ export class AuthService {
   private readonly logger = new Logger(AuthService.name);
 
   constructor(
-  @Inject(forwardRef(() => UsersService))
-  private readonly users: UsersService,
-  private readonly mail: MailService,
+    @Inject(forwardRef(() => UsersService))
+    private readonly users: UsersService,
 
-  @InjectRepository(UserEntity)
-  private readonly userRepo: Repository<UserEntity>,
-) {}
+    private readonly mail: MailService,
+
+    @InjectRepository(UserEntity)
+    private readonly userRepo: Repository<UserEntity>,
+  ) {}
 
   // -----------------------------
   // Helpers
@@ -209,7 +212,6 @@ export class AuthService {
 
   // -----------------------------
   // ✅ Admin debug: envia verificação por userId
-  // (isso resolve o erro TS2339 do seu controller)
   // -----------------------------
   async adminSendVerifyByUserId(userId: string) {
     const id = String(userId || '').trim();
