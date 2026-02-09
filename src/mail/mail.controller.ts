@@ -27,7 +27,6 @@ export class MailController {
       name?: string;
       downloadUrl?: string;
       deletionDateISO?: string;
-      // ✅ opcional (se você quiser testar token REAL)
       userId?: string;
     },
   ) {
@@ -53,12 +52,10 @@ export class MailController {
       (body?.deletionDateISO || '').trim() ||
       new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
 
-    // Base pública da API (onde o endpoint /mail/unsubscribe existe)
     const apiUrl =
       (process.env.API_PUBLIC_URL || '').trim() ||
       'https://mestrekira-api.onrender.com';
 
-    // ✅ Gera unsubscribe REAL quando possível; caso contrário, omite o link
     const unsubscribeUrl = await this.buildUnsubscribeUrlForTest(apiUrl, to, body?.userId);
 
     const result = await this.mail.sendInactivityWarning({
@@ -80,22 +77,16 @@ export class MailController {
     };
   }
 
-  /**
-   * Tenta gerar um link REAL:
-   * - Precisa de MAIL_UNSUBSCRIBE_SECRET (ou CLEANUP_SECRET)
-   * - Precisa de um userId correspondente ao e-mail (ou você passa userId no body)
-   */
   private async buildUnsubscribeUrlForTest(apiUrl: string, email: string, userId?: string) {
     const secret =
       (process.env.MAIL_UNSUBSCRIBE_SECRET || '').trim() ||
       (process.env.CLEANUP_SECRET || '').trim();
-
     if (!secret) return '';
 
     const uid = (userId || '').trim() || (await this.getUserIdByEmail(email));
     if (!uid) return '';
 
-    const exp = Date.now() + 30 * 24 * 60 * 60 * 1000; // 30 dias
+    const exp = Date.now() + 30 * 24 * 60 * 60 * 1000;
 
     const data = `${uid}|${email}|${exp}`;
     const sig = crypto.createHmac('sha256', secret).update(data).digest('base64url');
@@ -106,7 +97,6 @@ export class MailController {
   }
 
   private async getUserIdByEmail(email: string): Promise<string> {
-    // ⚠️ ajuste o nome da tabela/coluna se seu schema for diferente.
     const r = await this.dataSource.query(
       `
       SELECT id
@@ -120,15 +110,13 @@ export class MailController {
   }
 }
 
-/**
- * Rotas públicas para unsubscribe:
- * - GET  /mail/unsubscribe?token=...
- * - POST /mail/unsubscribe?token=...  (compatibilidade "one-click")
- */
 @Controller('mail')
 export class MailPublicController {
   constructor(private readonly dataSource: DataSource) {}
 
+  // -----------------------------
+  // Unsubscribe
+  // -----------------------------
   @Get('unsubscribe')
   async unsubscribeGet(@Query('token') token: string) {
     return this.applyUnsubscribeToken(token);
@@ -136,30 +124,93 @@ export class MailPublicController {
 
   @Post('unsubscribe')
   async unsubscribePost(@Query('token') token: string) {
-    // Gmail/clients podem mandar POST sem body útil; por isso aceitamos token na query.
     return this.applyUnsubscribeToken(token);
   }
 
   private async applyUnsubscribeToken(token: string) {
-    const parsed = this.verifyUnsubscribeToken(token);
-    if (!parsed.ok) {
-      return { ok: false, error: parsed.error };
-    }
+    const parsed = this.verifySignedToken(token);
+    if (!parsed.ok) return { ok: false, error: parsed.error };
 
     const { uid, email } = parsed;
 
-    // grava opt-out (email case-insensitive)
-   const res = await this.dataSource.query(
-  `
-  UPDATE user_entity
-  SET "emailOptOut" = true
-  WHERE id = $1 AND LOWER(email) = LOWER($2)
-  `,
-  [uid, email],
-);
+    const res = await this.dataSource.query(
+      `
+      UPDATE user_entity
+      SET "emailOptOut" = true
+      WHERE id = $1 AND LOWER(email) = LOWER($2)
+      `,
+      [uid, email],
+    );
+
+    return {
+      ok: true,
+      message: 'Notificações canceladas com sucesso.',
+      updated: (res as any)?.rowCount ?? null,
+    };
   }
 
-  private verifyUnsubscribeToken(token: string):
+  // -----------------------------
+  // Verify email (NOVO)
+  // -----------------------------
+  @Get('verify-email')
+  async verifyEmailGet(@Query('token') token: string) {
+    return this.applyVerifyEmailToken(token);
+  }
+
+  @Post('verify-email')
+  async verifyEmailPost(@Query('token') token: string) {
+    return this.applyVerifyEmailToken(token);
+  }
+
+  private async applyVerifyEmailToken(token: string) {
+    if (!token) return { ok: false, error: 'Token ausente.' };
+
+    const tokenHash = crypto.createHash('sha256').update(token).digest('base64url');
+
+    // Busca usuário pelo hash do token
+    const rows = await this.dataSource.query(
+      `
+      SELECT id, email, "emailVerified", "emailVerifyTokenExpiresAt"
+      FROM user_entity
+      WHERE "emailVerifyTokenHash" = $1
+      LIMIT 1
+      `,
+      [tokenHash],
+    );
+
+    const u = rows?.[0];
+    if (!u?.id) return { ok: false, error: 'Token inválido.' };
+
+    if (u.emailVerified) {
+      return { ok: true, message: 'E-mail já verificado.' };
+    }
+
+    const exp = u.emailVerifyTokenExpiresAt ? new Date(u.emailVerifyTokenExpiresAt) : null;
+    if (!exp || Date.now() > exp.getTime()) {
+      return { ok: false, error: 'Token expirado. Peça um novo e-mail de verificação.' };
+    }
+
+    const res = await this.dataSource.query(
+      `
+      UPDATE user_entity
+      SET "emailVerified" = true,
+          "emailVerifiedAt" = NOW(),
+          "emailVerifyTokenHash" = NULL,
+          "emailVerifyTokenExpiresAt" = NULL
+      WHERE id = $1
+      `,
+      [u.id],
+    );
+
+    return {
+      ok: true,
+      message: 'E-mail verificado com sucesso. Você já pode fazer login.',
+      updated: (res as any)?.rowCount ?? null,
+    };
+  }
+
+  // ✅ Reuso do verificador HMAC (unsubscribe)
+  private verifySignedToken(token: string):
     | { ok: true; uid: string; email: string; exp: number }
     | { ok: false; error: string } {
     if (!token || typeof token !== 'string') {
@@ -198,12 +249,8 @@ export class MailPublicController {
     }
 
     const data = `${uid}|${email}|${exp}`;
-    const expectedSig = crypto
-      .createHmac('sha256', secret)
-      .update(data)
-      .digest('base64url');
+    const expectedSig = crypto.createHmac('sha256', secret).update(data).digest('base64url');
 
-    // comparação em tempo constante
     const a = Buffer.from(sig);
     const b = Buffer.from(expectedSig);
     if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) {
