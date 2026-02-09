@@ -38,28 +38,35 @@ export class UsersController {
     return this.usersService.createStudent(name, email, password);
   }
 
-  // ✅ LOGIN por e-mail (AGORA BLOQUEIA se não verificou)
+  // ✅ LOGIN por e-mail (bloqueia se não verificado)
   @Post('login')
   async login(@Body('email') email: string, @Body('password') password: string) {
-    const user = await this.usersService.validateUser(email, password);
+    try {
+      const user = await this.usersService.validateUser(email, password);
 
-    if (!user) {
-      return { error: 'Usuário ou senha inválidos' };
+      if (!user) {
+        return { ok: false, error: 'Usuário ou senha inválidos' };
+      }
+
+      if (!user.emailVerified) {
+        return {
+          ok: false,
+          error: 'Confirme seu e-mail para acessar sua conta.',
+          code: 'EMAIL_NOT_VERIFIED',
+        };
+      }
+
+      return {
+        ok: true,
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        role: (user.role || '').toLowerCase(),
+      };
+    } catch (err) {
+      console.error('LOGIN ERROR:', err);
+      throw err;
     }
-
-    return {
-      id: user.id,
-      name: user.name,
-      email: user.email,
-      role: (user.role || '').toLowerCase(),
-    };
-  }
-
-  // ✅ reenviar verificação
-  @Post('resend-verification')
-  async resend(@Body('email') email: string) {
-    if (!email) throw new BadRequestException('Informe o e-mail.');
-    return this.usersService.resendVerification(String(email).trim());
   }
 
   @Get(':id')
@@ -72,11 +79,7 @@ export class UsersController {
     @Param('id') id: string,
     @Body() body: { email?: string; password?: string },
   ) {
-    return this.usersService.updateUser(
-      id,
-      body?.email?.trim(),
-      body?.password,
-    );
+    return this.usersService.updateUser(id, body?.email?.trim(), body?.password);
   }
 
   @Delete(':id')
