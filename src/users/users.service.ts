@@ -13,8 +13,6 @@ import { RoomEntity } from '../rooms/room.entity';
 import { EnrollmentEntity } from '../enrollments/enrollment.entity';
 import { TaskEntity } from '../tasks/task.entity';
 
-import { MailService } from '../mail/mail.service';
-
 function normalizeRole(role: any): 'professor' | 'student' {
   const r = String(role || '').toLowerCase();
   if (r === 'professor') return 'professor';
@@ -42,7 +40,7 @@ export class UsersService {
     private readonly taskRepo: Repository<TaskEntity>,
 
     private readonly dataSource: DataSource,
-    private readonly mail: MailService, // ✅ NOVO
+  
   ) {}
 
   // -----------------------------
@@ -274,3 +272,4 @@ export class UsersService {
     return { ok: true };
   }
 }
+
