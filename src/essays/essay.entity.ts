@@ -49,11 +49,18 @@ export class EssayEntity {
   @Column({ type: 'int', nullable: true })
   score: number;
 
+    // ✅ reset de senha ("esqueci minha senha")
+  @Column({ type: 'text', nullable: true })
+  passwordResetTokenHash: string | null;
+
+  @Column({ type: 'timestamptz', nullable: true })
+  passwordResetTokenExpiresAt: Date | null;
    @CreateDateColumn({ type: 'timestamptz' })
   createdAt: Date;
 
   @UpdateDateColumn({ type: 'timestamptz' })
   updatedAt: Date;
 }
+
 
 
