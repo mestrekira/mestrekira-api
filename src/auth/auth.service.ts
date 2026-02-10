@@ -47,12 +47,13 @@ export class AuthService {
   }
 
   private getWebUrl() {
-    // onde está sua tela HTML de redefinir senha (frontend)
-    return (
-      (process.env.APP_WEB_URL || '').trim() ||
-      'https://www.mestrekira.com.br'
-    );
-  }
+  // base do frontend (onde ficam os HTMLs públicos)
+  // Ex.: https://www.mestrekira.com.br/app/frontend
+  return (
+    (process.env.APP_WEB_URL || '').trim() ||
+    'https://www.mestrekira.com.br/app/frontend'
+  );
+}
 
   private sha256Hex(input: string) {
     return crypto.createHash('sha256').update(input).digest('hex');
