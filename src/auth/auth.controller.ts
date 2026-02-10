@@ -14,6 +14,16 @@ export class AuthController {
   constructor(private readonly auth: AuthService) {}
 
   /**
+   * ✅ Login:
+   * POST /auth/login
+   * body: { "email": "...", "password": "..." }
+   */
+  @Post('login')
+  async login(@Body('email') email: string, @Body('password') password: string) {
+    return this.auth.login(email, password);
+  }
+
+  /**
    * ✅ Confirmação via link do e-mail:
    * GET /auth/verify-email?token=...
    */
@@ -51,10 +61,9 @@ export class AuthController {
     }
 
     return this.auth.adminSendVerifyByUserId(userId);
-
   }
 
-     /**
+  /**
    * ✅ Esqueci minha senha:
    * POST /auth/request-password-reset
    * body: { "email": "..." }
