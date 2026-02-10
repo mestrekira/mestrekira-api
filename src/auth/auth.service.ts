@@ -42,6 +42,14 @@ export class AuthService {
     );
   }
 
+  private getWebUrl() {
+    // onde está sua tela HTML de redefinir senha (frontend)
+    return (
+      (process.env.APP_WEB_URL || '').trim() ||
+      'https://www.mestrekira.com.br'
+    );
+  }
+
   private sha256Hex(input: string) {
     return crypto.createHash('sha256').update(input).digest('hex');
   }
@@ -251,5 +259,93 @@ export class AuthService {
     this.logger.log(`Admin verify mail sent to ${user.email} (uid=${user.id})`);
 
     return { ok: true, sentTo: user.email, verifyUrl };
+  }
+
+  // =========================================================
+  // ✅ ESQUECI MINHA SENHA (NOVO)
+  // =========================================================
+
+  /**
+   * POST /auth/request-password-reset
+   * body: { email }
+   *
+   * Segurança: retorna ok mesmo se o e-mail não existir (evita enumeração).
+   */
+  async requestPasswordReset(email: string) {
+    const normalized = this.normalizeEmail(email);
+    if (!normalized || !normalized.includes('@')) {
+      throw new BadRequestException('E-mail inválido.');
+    }
+
+    const user = await this.userRepo.findOne({ where: { email: normalized } });
+
+    // sempre responde ok (não revela se existe)
+    if (!user) {
+      return { ok: true, message: 'Se o e-mail existir, enviaremos um link.' };
+    }
+
+    const rawToken = this.newToken();
+    const tokenHash = this.sha256Hex(rawToken);
+    const expires = new Date(Date.now() + 30 * 60 * 1000); // 30 min
+
+    await this.userRepo.update(
+      { id: user.id },
+      {
+        passwordResetTokenHash: tokenHash,
+        passwordResetTokenExpiresAt: expires,
+      },
+    );
+
+    // 🔗 link para a página do seu FRONTEND
+    const resetUrl = `${this.getWebUrl()}/reset-password.html?token=${encodeURIComponent(
+      rawToken,
+    )}`;
+
+    await this.mail.sendPasswordReset({
+      to: user.email,
+      name: user.name,
+      resetUrl,
+    });
+
+    return { ok: true, message: 'Se o e-mail existir, enviaremos um link.' };
+  }
+
+  /**
+   * POST /auth/reset-password
+   * body: { token, newPassword }
+   */
+  async resetPassword(token: string, newPassword: string) {
+    const raw = String(token || '').trim();
+    if (!raw) throw new BadRequestException('Token ausente.');
+
+    const pass = String(newPassword || '');
+    if (!pass || pass.length < 8) {
+      throw new BadRequestException('Senha deve ter no mínimo 8 caracteres.');
+    }
+
+    const hash = this.sha256Hex(raw);
+
+    const user = await this.userRepo.findOne({
+      where: { passwordResetTokenHash: hash },
+    });
+
+    if (!user) throw new BadRequestException('Token inválido.');
+    if (!user.passwordResetTokenExpiresAt) {
+      throw new BadRequestException('Token inválido.');
+    }
+    if (new Date() > new Date(user.passwordResetTokenExpiresAt)) {
+      throw new BadRequestException('Token expirado. Solicite um novo.');
+    }
+
+    await this.userRepo.update(
+      { id: user.id },
+      {
+        password: pass, // (mantendo seu padrão atual; depois podemos migrar para bcrypt)
+        passwordResetTokenHash: null,
+        passwordResetTokenExpiresAt: null,
+      },
+    );
+
+    return { ok: true, message: 'Senha redefinida com sucesso.' };
   }
 }
