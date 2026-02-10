@@ -98,10 +98,13 @@ export class AuthController {
   /**
    * ✅ Solicitar redefinição de senha
    */
-  @Post('request-password-reset')
-  async requestPasswordReset(@Body('email') email: string) {
-    return this.auth.requestPasswordReset(email);
-  }
+ @Post('request-password-reset')
+async requestPasswordReset(
+  @Body('email') email: string,
+  @Body('role') role?: string,
+) {
+  return this.auth.requestPasswordReset(email, role);
+}
 
   /**
    * ✅ Redefinir senha
