@@ -54,7 +54,7 @@ export class AuthController {
 
   }
 
-    /**
+     /**
    * ✅ Esqueci minha senha:
    * POST /auth/request-password-reset
    * body: { "email": "..." }
