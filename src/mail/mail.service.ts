@@ -72,10 +72,15 @@ export class MailService {
       if (replyTo) payload.reply_to = replyTo;
 
       const result = await this.resend.emails.send(payload);
-      this.logger.log(`Resend OK: to=${params.to} | result=${JSON.stringify(result)}`);
+      this.logger.log(
+        `Resend OK: to=${params.to} | result=${JSON.stringify(result)}`,
+      );
       return { ok: true, result };
     } catch (err: any) {
-      this.logger.error(`Resend FAIL: ${params.to} | ${err?.message || err}`, err?.stack);
+      this.logger.error(
+        `Resend FAIL: ${params.to} | ${err?.message || err}`,
+        err?.stack,
+      );
       throw err;
     }
   }
@@ -103,10 +108,10 @@ export class MailService {
       ? escapeAttr(unsubscribeUrl as string)
       : '';
 
-    const preheader = 'Baixe suas redações e gráficos e evite a remoção automática da conta.';
+    const preheader =
+      'Baixe suas redações e gráficos e evite a remoção automática da conta.';
 
-    let text =
-`Olá, ${name || 'tudo bem?'}
+    let text = `Olá, ${name || 'tudo bem?'}
 
 Identificamos que sua conta está inativa. Para liberar armazenamento, sua conta está programada para remoção em ${date}.
 
@@ -165,13 +170,9 @@ Se você voltar a usar a plataforma, a remoção pode ser evitada automaticament
   }
 
   // -----------------------------
-  // 2) Email Verification (NOVO)
+  // 2) Email Verification
   // -----------------------------
-  async sendEmailVerification(params: {
-    to: string;
-    name: string;
-    verifyUrl: string;
-  }) {
+  async sendEmailVerification(params: { to: string; name: string; verifyUrl: string }) {
     const from = (process.env.MAIL_FROM || '').trim();
     const replyTo = (process.env.MAIL_REPLY_TO || '').trim();
 
@@ -199,28 +200,26 @@ Se você voltar a usar a plataforma, a remoção pode ser evitada automaticament
       if (replyTo) payload.reply_to = replyTo;
 
       const result = await this.resend.emails.send(payload);
-      this.logger.log(`VerifyEmail OK: to=${params.to} | result=${JSON.stringify(result)}`);
+      this.logger.log(
+        `VerifyEmail OK: to=${params.to} | result=${JSON.stringify(result)}`,
+      );
       return { ok: true, result };
     } catch (err: any) {
-      this.logger.error(`VerifyEmail FAIL: ${params.to} | ${err?.message || err}`, err?.stack);
+      this.logger.error(
+        `VerifyEmail FAIL: ${params.to} | ${err?.message || err}`,
+        err?.stack,
+      );
       throw err;
     }
   }
 
-  private buildVerifyEmailContent({
-    name,
-    verifyUrl,
-  }: {
-    name: string;
-    verifyUrl: string;
-  }) {
+  private buildVerifyEmailContent({ name, verifyUrl }: { name: string; verifyUrl: string }) {
     const safeName = escapeHtml((name || '').trim() || 'Olá');
     const safeUrl = escapeAttr(verifyUrl);
 
     const preheader = 'Confirme seu e-mail para liberar o acesso à sua conta.';
 
-    const text =
-`Olá, ${name || 'tudo bem?'}
+    const text = `Olá, ${name || 'tudo bem?'}
 
 Para acessar sua conta no Mestre Kira, confirme seu e-mail clicando no link abaixo:
 ${verifyUrl}
@@ -256,14 +255,10 @@ Se você não criou esta conta, ignore este e-mail.
     return { html, text };
   }
 
-    // -----------------------------
-  // 3) Password Reset (NOVO)
   // -----------------------------
-  async sendPasswordReset(params: {
-    to: string;
-    name: string;
-    resetUrl: string;
-  }) {
+  // 3) Password Reset
+  // -----------------------------
+  async sendPasswordReset(params: { to: string; name: string; resetUrl: string }) {
     const from = (process.env.MAIL_FROM || '').trim();
     const replyTo = (process.env.MAIL_REPLY_TO || '').trim();
 
@@ -276,46 +271,8 @@ Se você não criou esta conta, ignore este e-mail.
       return { ok: false, skipped: true, reason: 'RESEND_API_KEY missing' };
     }
 
-    const subject = 'Redefina sua senha no Mestre Kira';
-
-    const safeName = escapeHtml((params.name || '').trim() || 'Olá');
-    const safeUrl = escapeAttr(params.resetUrl);
-
-    const text =
-`Olá, ${params.name || 'tudo bem?'}
-
-Recebemos uma solicitação para redefinir sua senha.
-Clique no link abaixo para criar uma nova senha:
-${params.resetUrl}
-
-Se você não solicitou isso, ignore este e-mail.
-
-— Mestre Kira
-`;
-
-    const html = `
-<div style="display:none;max-height:0;overflow:hidden;opacity:0;color:transparent;">
-  Redefina sua senha no Mestre Kira.
-</div>
-
-<div style="font-family: Arial, sans-serif; line-height: 1.5;">
-  <h2 style="margin: 0 0 12px;">${safeName}, redefina sua senha</h2>
-
-  <p style="margin:0 0 12px;">
-    Recebemos uma solicitação para redefinir sua senha.
-  </p>
-
-  <p style="margin:0 0 16px;">
-    <a href="${safeUrl}" style="display:inline-block;padding:10px 14px;border-radius:8px;background:#111;color:#fff;text-decoration:none;">
-      Redefinir senha
-    </a>
-  </p>
-
-  <p style="color:#666;font-size:12px;margin-top:18px;">
-    Se você não solicitou isso, ignore este e-mail.
-  </p>
-</div>
-`;
+    const subject = 'Redefinição de senha — Mestre Kira';
+    const { html, text } = this.buildPasswordResetContent(params);
 
     try {
       const payload: any = {
@@ -329,12 +286,67 @@ Se você não solicitou isso, ignore este e-mail.
       if (replyTo) payload.reply_to = replyTo;
 
       const result = await this.resend.emails.send(payload);
-      this.logger.log(`PasswordReset OK: to=${params.to} | result=${JSON.stringify(result)}`);
+      this.logger.log(
+        `PasswordReset OK: to=${params.to} | result=${JSON.stringify(result)}`,
+      );
       return { ok: true, result };
     } catch (err: any) {
-      this.logger.error(`PasswordReset FAIL: ${params.to} | ${err?.message || err}`, err?.stack);
+      this.logger.error(
+        `PasswordReset FAIL: ${params.to} | ${err?.message || err}`,
+        err?.stack,
+      );
       throw err;
     }
   }
-}
 
+  private buildPasswordResetContent({
+    name,
+    resetUrl,
+  }: {
+    name: string;
+    resetUrl: string;
+  }) {
+    const safeName = escapeHtml((name || '').trim() || 'Olá');
+    const safeUrl = escapeAttr(resetUrl);
+
+    const preheader =
+      'Use este link para redefinir sua senha (expira em 30 minutos).';
+
+    const text = `Olá, ${name || 'tudo bem?'}
+
+Recebemos uma solicitação para redefinir sua senha no Mestre Kira.
+Para criar uma nova senha, acesse o link abaixo (expira em 30 minutos):
+${resetUrl}
+
+Se você não solicitou isso, ignore este e-mail.
+
+— Mestre Kira
+`;
+
+    const html = `
+<div style="display:none;max-height:0;overflow:hidden;opacity:0;color:transparent;">
+  ${escapeHtml(preheader)}
+</div>
+
+<div style="font-family: Arial, sans-serif; line-height: 1.5;">
+  <h2 style="margin: 0 0 12px;">${safeName}, redefina sua senha</h2>
+
+  <p style="margin:0 0 12px;">
+    Recebemos uma solicitação para redefinir sua senha no <b>Mestre Kira</b>.
+    Este link expira em <b>30 minutos</b>.
+  </p>
+
+  <p style="margin:0 0 16px;">
+    <a href="${safeUrl}" style="display:inline-block;padding:10px 14px;border-radius:8px;background:#111;color:#fff;text-decoration:none;">
+      Redefinir senha
+    </a>
+  </p>
+
+  <p style="color:#666;font-size:12px;margin-top:18px;">
+    Se você não solicitou isso, ignore este e-mail.
+  </p>
+</div>
+`;
+    return { html, text };
+  }
+}
