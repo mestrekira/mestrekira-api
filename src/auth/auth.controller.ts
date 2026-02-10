@@ -19,7 +19,6 @@ export class AuthController {
   /**
    * ✅ Login:
    * POST /auth/login
-   * body: { "email": "...", "password": "..." }
    */
   @Post('login')
   async login(@Body('email') email: string, @Body('password') password: string) {
@@ -27,11 +26,11 @@ export class AuthController {
   }
 
   /**
-   * ✅ Confirmação via link do e-mail (Plano A):
+   * ✅ Verificação de e-mail via link
    * GET /auth/verify-email?token=...
    *
-   * - Navegador: redireciona para /verificar-email.html?ok=1|0
-   * - API/Postman: retorna JSON
+   * - Navegador → redireciona para o frontend
+   * - Postman/API → retorna JSON
    */
   @Get('verify-email')
   async verifyEmail(
@@ -40,18 +39,18 @@ export class AuthController {
     @Res({ passthrough: true }) res: Response,
   ) {
     const web =
-      (process.env.APP_WEB_URL || '').trim() || 'https://www.mestrekira.com.br';
+      (process.env.APP_WEB_URL || '').trim() ||
+      'https://www.mestrekira.com.br/app/frontend';
 
-    // heurística simples: se aceita HTML, é navegação
     const accept = String(req.headers['accept'] || '');
     const wantsHtml = accept.includes('text/html');
 
-    // Se for API/JSON (Postman), mantém como antes
+    // 👉 API/Postman
     if (!wantsHtml) {
       return this.auth.verifyEmail(token);
     }
 
-    // Se for navegador, tenta verificar e redireciona
+    // 👉 Navegador
     try {
       await this.auth.verifyEmail(token);
 
@@ -59,15 +58,13 @@ export class AuthController {
       res.redirect(302, redirectUrl);
       return;
     } catch (err: any) {
-      // tenta extrair uma mensagem curta
       const msg =
         String(err?.response?.message || err?.message || 'Erro ao verificar.')
           .slice(0, 200)
           .trim();
 
-      const redirectUrl = `${web}/verificar-email.html?ok=0&msg=${encodeURIComponent(
-        msg,
-      )}`;
+      const redirectUrl =
+        `${web}/verificar-email.html?ok=0&msg=${encodeURIComponent(msg)}`;
 
       res.redirect(302, redirectUrl);
       return;
@@ -75,9 +72,7 @@ export class AuthController {
   }
 
   /**
-   * ✅ Reenvio (público):
-   * POST /auth/request-verify
-   * body: { "email": "..." }
+   * ✅ Reenviar verificação
    */
   @Post('request-verify')
   async requestVerify(@Body('email') email: string) {
@@ -85,12 +80,7 @@ export class AuthController {
   }
 
   /**
-   * ✅ (Opcional) Admin debug para testes no Postman:
-   * POST /auth/admin/send-verify
-   * Header: x-auth-secret: <AUTH_ADMIN_SECRET>
-   * Body: { "userId": "uuid" }
-   *
-   * Defina AUTH_ADMIN_SECRET no Render.
+   * ✅ Admin debug
    */
   @Post('admin/send-verify')
   async adminSendVerify(
@@ -106,9 +96,7 @@ export class AuthController {
   }
 
   /**
-   * ✅ Esqueci minha senha:
-   * POST /auth/request-password-reset
-   * body: { "email": "..." }
+   * ✅ Solicitar redefinição de senha
    */
   @Post('request-password-reset')
   async requestPasswordReset(@Body('email') email: string) {
@@ -116,9 +104,7 @@ export class AuthController {
   }
 
   /**
-   * ✅ Redefinir senha:
-   * POST /auth/reset-password
-   * body: { "token": "...", "newPassword": "..." }
+   * ✅ Redefinir senha
    */
   @Post('reset-password')
   async resetPassword(
