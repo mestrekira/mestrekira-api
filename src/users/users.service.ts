@@ -5,6 +5,7 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, In, Repository } from 'typeorm';
+import * as bcrypt from 'bcrypt';
 
 import { UserEntity } from './user.entity';
 import { EssayEntity } from '../essays/essay.entity';
@@ -18,6 +19,16 @@ function normalizeRole(role: any): 'professor' | 'student' {
   if (r === 'student') return 'student';
   if (String(role).toUpperCase() === 'PROFESSOR') return 'professor';
   return 'student';
+}
+
+function normalizeEmail(email: any) {
+  return String(email || '').trim().toLowerCase();
+}
+
+function isBcryptHash(value: any) {
+  const v = String(value || '');
+  // bcrypt hashes começam com $2a$, $2b$, $2y$
+  return v.startsWith('$2a$') || v.startsWith('$2b$') || v.startsWith('$2y$');
 }
 
 @Injectable()
@@ -45,7 +56,7 @@ export class UsersService {
   // Cadastro (NÃO envia email aqui)
   // -----------------------------
   async createProfessor(name: string, email: string, password: string) {
-    email = String(email || '').trim().toLowerCase();
+    email = normalizeEmail(email);
 
     if (!name?.trim()) throw new BadRequestException('Nome é obrigatório.');
     if (!email.includes('@')) throw new BadRequestException('E-mail inválido.');
@@ -56,10 +67,13 @@ export class UsersService {
     const exists = await this.userRepo.findOne({ where: { email } });
     if (exists) throw new BadRequestException('Este e-mail já está cadastrado.');
 
+    // ✅ bcrypt no cadastro
+    const passwordHash = await bcrypt.hash(String(password), 10);
+
     const user = this.userRepo.create({
       name,
       email,
-      password,
+      password: passwordHash,
       role: 'professor',
 
       // verificação
@@ -82,7 +96,7 @@ export class UsersService {
   }
 
   async createStudent(name: string, email: string, password: string) {
-    email = String(email || '').trim().toLowerCase();
+    email = normalizeEmail(email);
 
     if (!name?.trim()) throw new BadRequestException('Nome é obrigatório.');
     if (!email.includes('@')) throw new BadRequestException('E-mail inválido.');
@@ -93,10 +107,13 @@ export class UsersService {
     const exists = await this.userRepo.findOne({ where: { email } });
     if (exists) throw new BadRequestException('Este e-mail já está cadastrado.');
 
+    // ✅ bcrypt no cadastro
+    const passwordHash = await bcrypt.hash(String(password), 10);
+
     const user = this.userRepo.create({
       name,
       email,
-      password,
+      password: passwordHash,
       role: 'student',
 
       // verificação
@@ -122,7 +139,7 @@ export class UsersService {
   // Busca / Login
   // -----------------------------
   async findByEmail(email: string) {
-    email = String(email || '').trim().toLowerCase();
+    email = normalizeEmail(email);
     return this.userRepo.findOne({ where: { email } });
   }
 
@@ -130,10 +147,34 @@ export class UsersService {
     return this.userRepo.find();
   }
 
+  /**
+   * ✅ Validação com migração automática:
+   * - Se senha no banco já for bcrypt → compare
+   * - Se ainda for texto puro (legado) → compara direto e, se OK, converte para bcrypt e salva
+   */
   async validateUser(email: string, password: string) {
     const user = await this.findByEmail(email);
     if (!user) return null;
-    if (user.password !== password) return null;
+
+    const incoming = String(password || '');
+    const stored = String(user.password || '');
+
+    // ✅ Já está em bcrypt
+    if (isBcryptHash(stored)) {
+      const ok = await bcrypt.compare(incoming, stored);
+      if (!ok) return null;
+
+      user.role = normalizeRole(user.role);
+      return user;
+    }
+
+    // ✅ Legado (texto puro)
+    if (stored !== incoming) return null;
+
+    // ✅ Migra para bcrypt ao logar com sucesso
+    const newHash = await bcrypt.hash(incoming, 10);
+    await this.userRepo.update({ id: user.id }, { password: newHash });
+    user.password = newHash;
 
     user.role = normalizeRole(user.role);
     return user;
@@ -159,7 +200,7 @@ export class UsersService {
     let emailChanged = false;
 
     if (email) {
-      const newEmail = String(email).trim().toLowerCase();
+      const newEmail = normalizeEmail(email);
       if (!newEmail.includes('@')) throw new BadRequestException('E-mail inválido.');
 
       const exists = await this.userRepo.findOne({ where: { email: newEmail } });
@@ -180,10 +221,13 @@ export class UsersService {
     }
 
     if (password) {
-      if (password.length < 8) {
+      const p = String(password || '');
+      if (p.length < 8) {
         throw new BadRequestException('Senha deve ter no mínimo 8 caracteres.');
       }
-      user.password = password;
+
+      // ✅ bcrypt ao atualizar senha
+      user.password = await bcrypt.hash(p, 10);
     }
 
     await this.userRepo.save(user);
