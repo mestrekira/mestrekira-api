@@ -16,16 +16,24 @@ import { AuthService } from './auth.service';
     forwardRef(() => UsersModule),
 
     JwtModule.register({
-      secret:
-        (process.env.JWT_SECRET || '').trim() ||
-        'DEV_ONLY_CHANGE_ME__MESTRE_KIRA',
-      signOptions: {
-        expiresIn: (process.env.JWT_EXPIRES_IN || '').trim() || '7d',
-      },
-    }),
+  secret:
+    (process.env.JWT_SECRET || '').trim() || 'DEV_ONLY_CHANGE_ME__MESTRE_KIRA',
+  signOptions: {
+    expiresIn: (() => {
+      const raw = (process.env.JWT_EXPIRES_IN || '').trim() || '7d';
+
+      // se for número puro (ex: "3600"), vira number
+      if (/^\d+$/.test(raw)) return Number(raw);
+
+      // senão assume formato do jsonwebtoken (ex: "7d", "12h", "30m")
+      return raw as any; // (resolve o TS2322 sem quebrar runtime)
+    })(),
+  },
+}),
   ],
   controllers: [AuthController],
   providers: [AuthService],
   exports: [AuthService, JwtModule],
 })
 export class AuthModule {}
+
