@@ -9,6 +9,8 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import * as crypto from 'crypto';
+import * as bcrypt from 'bcrypt';
+import { JwtService } from '@nestjs/jwt';
 
 import { UserEntity } from '../users/user.entity';
 import { UsersService } from '../users/users.service';
@@ -23,6 +25,8 @@ export class AuthService {
     private readonly users: UsersService,
 
     private readonly mail: MailService,
+
+    private readonly jwt: JwtService,
 
     @InjectRepository(UserEntity)
     private readonly userRepo: Repository<UserEntity>,
@@ -94,7 +98,7 @@ export class AuthService {
   }
 
   // -----------------------------
-  // Login (bloqueia se não verificado)
+  // Login (bloqueia se não verificado) + JWT
   // -----------------------------
   async login(email: string, password: string) {
     const user = await this.users.validateUser(email, password);
@@ -111,12 +115,21 @@ export class AuthService {
       };
     }
 
+    const token = await this.jwt.signAsync({
+      sub: user.id,
+      role: (user.role || 'student').toLowerCase(),
+    });
+
     return {
-      id: user.id,
-      name: user.name,
-      email: user.email,
-      role: (user.role || '').toLowerCase(),
-      emailVerified: true,
+      ok: true,
+      message: 'Login realizado.',
+      token,
+      user: {
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        role: (user.role || '').toLowerCase(),
+      },
     };
   }
 
@@ -262,7 +275,7 @@ export class AuthService {
   }
 
   // =========================================================
-  // ✅ ESQUECI MINHA SENHA (NOVO)
+  // ✅ ESQUECI MINHA SENHA
   // =========================================================
 
   /**
@@ -337,10 +350,13 @@ export class AuthService {
       throw new BadRequestException('Token expirado. Solicite um novo.');
     }
 
+    // ✅ bcrypt no reset de senha
+    const passwordHash = await bcrypt.hash(pass, 10);
+
     await this.userRepo.update(
       { id: user.id },
       {
-        password: pass, // (mantendo seu padrão atual; depois podemos migrar para bcrypt)
+        password: passwordHash,
         passwordResetTokenHash: null,
         passwordResetTokenExpiresAt: null,
       },
