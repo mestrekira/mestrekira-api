@@ -51,5 +51,29 @@ export class AuthController {
     }
 
     return this.auth.adminSendVerifyByUserId(userId);
+
+  }
+
+    /**
+   * ✅ Esqueci minha senha:
+   * POST /auth/request-password-reset
+   * body: { "email": "..." }
+   */
+  @Post('request-password-reset')
+  async requestPasswordReset(@Body('email') email: string) {
+    return this.auth.requestPasswordReset(email);
+  }
+
+  /**
+   * ✅ Redefinir senha:
+   * POST /auth/reset-password
+   * body: { "token": "...", "newPassword": "..." }
+   */
+  @Post('reset-password')
+  async resetPassword(
+    @Body('token') token: string,
+    @Body('newPassword') newPassword: string,
+  ) {
+    return this.auth.resetPassword(token, newPassword);
   }
 }
