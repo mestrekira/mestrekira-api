@@ -47,13 +47,13 @@ export class AuthService {
   }
 
   private getWebUrl() {
-  // base do frontend (onde ficam os HTMLs públicos)
-  // Ex.: https://www.mestrekira.com.br/app/frontend
-  return (
-    (process.env.APP_WEB_URL || '').trim() ||
-    'https://www.mestrekira.com.br/app/frontend'
-  );
-}
+    // base do frontend (onde ficam os HTMLs públicos)
+    // Ex.: https://www.mestrekira.com.br/app/frontend
+    return (
+      (process.env.APP_WEB_URL || '').trim() ||
+      'https://www.mestrekira.com.br/app/frontend'
+    );
+  }
 
   private sha256Hex(input: string) {
     return crypto.createHash('sha256').update(input).digest('hex');
@@ -281,11 +281,11 @@ export class AuthService {
 
   /**
    * POST /auth/request-password-reset
-   * body: { email }
+   * body: { email, role? }
    *
    * Segurança: retorna ok mesmo se o e-mail não existir (evita enumeração).
    */
-  async requestPasswordReset(email: string) {
+  async requestPasswordReset(email: string, role?: string) {
     const normalized = this.normalizeEmail(email);
     if (!normalized || !normalized.includes('@')) {
       throw new BadRequestException('E-mail inválido.');
@@ -310,10 +310,14 @@ export class AuthService {
       },
     );
 
-    // 🔗 link para a página do seu FRONTEND
-    const resetUrl = `${this.getWebUrl()}/reset-password.html?token=${encodeURIComponent(
-      rawToken,
-    )}`;
+    // ✅ role opcional (para redirecionar para o login correto)
+    const r = String(role || '').trim().toLowerCase();
+    const safeRole = r === 'professor' || r === 'student' ? r : '';
+
+    const base = this.getWebUrl(); // já é https://www.mestrekira.com.br/app/frontend
+    const resetUrl =
+      `${base}/reset-password.html?token=${encodeURIComponent(rawToken)}` +
+      (safeRole ? `&role=${encodeURIComponent(safeRole)}` : '');
 
     await this.mail.sendPasswordReset({
       to: user.email,
@@ -351,7 +355,6 @@ export class AuthService {
       throw new BadRequestException('Token expirado. Solicite um novo.');
     }
 
-    // ✅ bcrypt no reset de senha
     const passwordHash = await bcrypt.hash(pass, 10);
 
     await this.userRepo.update(
