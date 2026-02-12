@@ -7,36 +7,52 @@ import {
   Index,
 } from 'typeorm';
 
-@Entity()
+@Entity({ name: 'user_entity' }) // use o nome real da sua tabela se for diferente
 @Index(['email'], { unique: true })
 export class UserEntity {
+  // ================================
+  // 🔹 Identificação básica
+  // ================================
+
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
-  @Column()
+  @Column({ type: 'text' })
   name: string;
 
-  @Column()
+  @Column({ type: 'text' })
   email: string;
 
-  @Column()
+  @Column({ type: 'text' })
   password: string;
 
-  @Column({ default: 'student' })
-  role: string;
+  @Column({ type: 'text', default: 'student' })
+  role: string; // 'student' | 'professor'
 
-  // ✅ controle do aviso/exclusão por inatividade
+
+  // ================================
+  // 🔹 Controle de inatividade
+  // ================================
+
   @Column({ type: 'timestamptz', nullable: true })
   inactivityWarnedAt: Date | null;
 
   @Column({ type: 'timestamptz', nullable: true })
   scheduledDeletionAt: Date | null;
 
-  // ✅ opt-out de e-mails (já existe no seu banco)
+
+  // ================================
+  // 🔹 Preferências de e-mail
+  // ================================
+
   @Column({ type: 'boolean', default: false })
   emailOptOut: boolean;
 
-  // ✅ verificação de e-mail
+
+  // ================================
+  // 🔹 Verificação de e-mail
+  // ================================
+
   @Column({ type: 'boolean', default: false })
   emailVerified: boolean;
 
@@ -49,17 +65,25 @@ export class UserEntity {
   @Column({ type: 'timestamptz', nullable: true })
   emailVerifyTokenExpiresAt: Date | null;
 
-  @CreateDateColumn()
-  createdAt: Date;
 
-  @UpdateDateColumn()
-  updatedAt: Date;
+  // ================================
+  // 🔹 Recuperação de senha
+  // ================================
 
-  // ✅ recuperação de senha
   @Column({ type: 'text', nullable: true })
   passwordResetTokenHash: string | null;
 
   @Column({ type: 'timestamptz', nullable: true })
   passwordResetTokenExpiresAt: Date | null;
-}
 
+
+  // ================================
+  // 🔹 Datas automáticas
+  // ================================
+
+  @CreateDateColumn({ type: 'timestamptz' })
+  createdAt: Date;
+
+  @UpdateDateColumn({ type: 'timestamptz' })
+  updatedAt: Date;
+}
