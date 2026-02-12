@@ -12,7 +12,7 @@ type Essay = {
   c4?: number | null;
   c5?: number | null;
   content?: string | null;
-  feedback?: string | null;
+  // feedback removido (não vamos baixar por enquanto)
   submittedAt?: any;
   createdAt?: any;
   updatedAt?: any;
@@ -106,15 +106,42 @@ function donutSvg({ c1, c2, c3, c4, c5, totalText }: any) {
 
 @Injectable()
 export class PdfService {
+  /**
+   * ✅ Compatibilidade com o pdf.controller.ts
+   * (o controller está chamando generateStudentPerformancePdf)
+   */
+  async generateStudentPerformancePdf(params: {
+    studentName: string;
+    roomName: string;
+    essays: Essay[];
+    averages: {
+      total: number | null;
+      c1: number | null;
+      c2: number | null;
+      c3: number | null;
+      c4: number | null;
+      c5: number | null;
+    };
+  }): Promise<Buffer> {
+    return this.performancePdf(params);
+  }
+
   async performancePdf(params: {
     studentName: string;
     roomName: string;
     essays: Essay[];
-    averages: { total: number | null; c1: number | null; c2: number | null; c3: number | null; c4: number | null; c5: number | null };
+    averages: {
+      total: number | null;
+      c1: number | null;
+      c2: number | null;
+      c3: number | null;
+      c4: number | null;
+      c5: number | null;
+    };
   }): Promise<Buffer> {
     const { studentName, roomName, essays, averages } = params;
 
-    // ✅ HTML do relatório
+    // ✅ HTML do relatório (sem feedback)
     const html = `
 <!doctype html>
 <html lang="pt-BR">
@@ -135,8 +162,6 @@ export class PdfService {
     .sectionTitle { font-size: 14px; font-weight: 900; margin: 14px 0 8px; }
     .task { page-break-inside: avoid; }
     .essayBox { margin-top: 10px; padding: 12px; border-radius: 12px; border: 1px solid #e5e7eb; white-space: pre-wrap; line-height: 1.6; text-align: justify; }
-    .feedbackBox { margin-top: 10px; padding: 12px; border-radius: 12px; border: 1px solid #e5e7eb; white-space: pre-wrap; line-height: 1.6; }
-    .pageBreak { page-break-before: always; }
   </style>
 </head>
 <body>
@@ -220,12 +245,6 @@ export class PdfService {
             ? `<div class="essayBox"><strong>Redação</strong>\n\n${escapeHtml(e.content)}</div>`
             : ''
         }
-
-        ${
-          e.feedback
-            ? `<div class="feedbackBox"><strong>Feedback</strong>\n\n${escapeHtml(e.feedback)}</div>`
-            : ''
-        }
       </div>`;
     })
     .join('')}
@@ -234,7 +253,7 @@ export class PdfService {
 `;
 
     const browser = await puppeteer.launch({
-     headless: true,
+      headless: true, // ✅ corrigido para compilar e rodar no Render
       args: ['--no-sandbox', '--disable-setuid-sandbox'],
     });
 
@@ -253,5 +272,4 @@ export class PdfService {
       await browser.close();
     }
   }
-
 }
