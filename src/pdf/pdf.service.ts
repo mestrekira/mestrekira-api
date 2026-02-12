@@ -1,27 +1,48 @@
 import { Injectable } from '@nestjs/common';
 import puppeteer from 'puppeteer';
 
-type Essay = {
+type AnyObj = Record<string, any>;
+
+type TaskLike = {
+  id?: string;
+  title?: string;
+  name?: string;
+  taskTitle?: string;
+} & AnyObj;
+
+type EssayLike = {
   id: string;
   taskId: string;
-  taskTitle?: string;
+
+  // notas
   score?: number | null;
   c1?: number | null;
   c2?: number | null;
   c3?: number | null;
   c4?: number | null;
   c5?: number | null;
+
+  // texto
   content?: string | null;
-  // feedback removido (não vamos baixar por enquanto)
+
+  // datas (opcional)
   submittedAt?: any;
   createdAt?: any;
   updatedAt?: any;
-};
+
+  // opcional
+  taskTitle?: string;
+} & AnyObj;
 
 function clamp0to200(n: any) {
   const v = Number(n);
   if (Number.isNaN(v)) return 0;
   return Math.max(0, Math.min(200, v));
+}
+
+function safeNum(n: any): number | null {
+  const v = Number(n);
+  return Number.isNaN(v) ? null : v;
 }
 
 function escapeHtml(s: any) {
@@ -31,6 +52,14 @@ function escapeHtml(s: any) {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#039;');
+}
+
+function mean(nums: Array<any>): number | null {
+  const v = (Array.isArray(nums) ? nums : [])
+    .map(safeNum)
+    .filter((x): x is number => typeof x === 'number' && !Number.isNaN(x));
+  if (v.length === 0) return null;
+  return Math.round(v.reduce((a, b) => a + b, 0) / v.length);
 }
 
 // ✅ Donut em SVG (similar ao seu front)
@@ -104,32 +133,77 @@ function donutSvg({ c1, c2, c3, c4, c5, totalText }: any) {
   </svg>`;
 }
 
+function buildTasksTitleMap(tasks: TaskLike[]) {
+  const map = new Map<string, string>();
+  (Array.isArray(tasks) ? tasks : []).forEach((t) => {
+    const id = String(t?.id ?? '').trim();
+    if (!id) return;
+    const title =
+      String(t?.title ?? t?.taskTitle ?? t?.name ?? '').trim() || 'Tarefa';
+    map.set(id, title);
+  });
+  return map;
+}
+
 @Injectable()
 export class PdfService {
   /**
-   * ✅ Compatibilidade com o pdf.controller.ts
-   * (o controller está chamando generateStudentPerformancePdf)
+   * ✅ Exatamente o que o seu PdfController chama hoje.
+   * Gera PDF do desempenho do aluno (sem feedback).
    */
   async generateStudentPerformancePdf(params: {
-    studentName: string;
-    roomName: string;
-    essays: Essay[];
-    averages: {
-      total: number | null;
-      c1: number | null;
-      c2: number | null;
-      c3: number | null;
-      c4: number | null;
-      c5: number | null;
-    };
+    roomId: string;
+    studentId: string;
+    essays: EssayLike[];
+    tasks: TaskLike[];
   }): Promise<Buffer> {
-    return this.performancePdf(params);
+    const { roomId, studentId } = params;
+
+    const essaysRaw = Array.isArray(params.essays) ? params.essays : [];
+    const tasksRaw = Array.isArray(params.tasks) ? params.tasks : [];
+
+    const tasksMap = buildTasksTitleMap(tasksRaw);
+
+    // Enriquecer redações com taskTitle
+    const essays: EssayLike[] = essaysRaw.map((e, idx) => {
+      const tTitle =
+        tasksMap.get(String(e?.taskId ?? '').trim()) ||
+        e?.taskTitle ||
+        `Tarefa ${idx + 1}`;
+      return { ...e, taskTitle: tTitle };
+    });
+
+    // médias somente corrigidas
+    const corrected = essays.filter(
+      (e) => e?.score !== null && e?.score !== undefined,
+    );
+
+    const averages = {
+      total: mean(corrected.map((e) => e.score)),
+      c1: mean(corrected.map((e) => e.c1)),
+      c2: mean(corrected.map((e) => e.c2)),
+      c3: mean(corrected.map((e) => e.c3)),
+      c4: mean(corrected.map((e) => e.c4)),
+      c5: mean(corrected.map((e) => e.c5)),
+    };
+
+    // Como seu controller não passa nomes, usamos identificadores por enquanto.
+    // (Se você quiser, depois a gente puxa User/Room via services e coloca aqui.)
+    const studentName = `Aluno (${studentId})`;
+    const roomName = `Sala (${roomId})`;
+
+    return this.performancePdf({
+      studentName,
+      roomName,
+      essays,
+      averages,
+    });
   }
 
-  async performancePdf(params: {
+  private async performancePdf(params: {
     studentName: string;
     roomName: string;
-    essays: Essay[];
+    essays: EssayLike[];
     averages: {
       total: number | null;
       c1: number | null;
@@ -141,7 +215,6 @@ export class PdfService {
   }): Promise<Buffer> {
     const { studentName, roomName, essays, averages } = params;
 
-    // ✅ HTML do relatório (sem feedback)
     const html = `
 <!doctype html>
 <html lang="pt-BR">
@@ -162,6 +235,7 @@ export class PdfService {
     .sectionTitle { font-size: 14px; font-weight: 900; margin: 14px 0 8px; }
     .task { page-break-inside: avoid; }
     .essayBox { margin-top: 10px; padding: 12px; border-radius: 12px; border: 1px solid #e5e7eb; white-space: pre-wrap; line-height: 1.6; text-align: justify; }
+    .badge { display:inline-block; font-size:11px; font-weight:900; padding:3px 8px; border-radius:999px; border:1px solid #e5e7eb; background:#f8fafc; }
   </style>
 </head>
 <body>
@@ -217,31 +291,33 @@ export class PdfService {
 
   ${essays
     .map((e, idx) => {
-      const score = e.score ?? null;
-      const c1 = clamp0to200(e.c1);
-      const c2 = clamp0to200(e.c2);
-      const c3 = clamp0to200(e.c3);
-      const c4 = clamp0to200(e.c4);
-      const c5 = clamp0to200(e.c5);
+      const score = e?.score ?? null;
+      const c1 = clamp0to200(e?.c1);
+      const c2 = clamp0to200(e?.c2);
+      const c3 = clamp0to200(e?.c3);
+      const c4 = clamp0to200(e?.c4);
+      const c5 = clamp0to200(e?.c5);
 
       return `
       <div class="card task">
         <div style="display:flex; justify-content:space-between; gap:12px; flex-wrap:wrap;">
           <div>
-            <div style="font-weight:900;">${escapeHtml(e.taskTitle || `Tarefa ${idx + 1}`)}</div>
-            <div class="muted">Nota: ${score === null ? '— (não corrigida)' : `${score} / 1000`}</div>
+            <div style="font-weight:900;">${escapeHtml(e?.taskTitle || `Tarefa ${idx + 1}`)}</div>
+            <div class="muted">Nota: ${
+              score === null ? '— (não corrigida)' : `${score} / 1000`
+            }</div>
           </div>
           <div>
             ${
               score === null
-                ? `<div class="muted">Sem gráfico (não corrigida).</div>`
+                ? `<span class="badge">Sem gráfico</span>`
                 : donutSvg({ c1, c2, c3, c4, c5, totalText: String(score) })
             }
           </div>
         </div>
 
         ${
-          e.content
+          e?.content
             ? `<div class="essayBox"><strong>Redação</strong>\n\n${escapeHtml(e.content)}</div>`
             : ''
         }
@@ -253,7 +329,7 @@ export class PdfService {
 `;
 
     const browser = await puppeteer.launch({
-      headless: true, // ✅ corrigido para compilar e rodar no Render
+      headless: true, // ✅ Render-friendly e sem erro TS
       args: ['--no-sandbox', '--disable-setuid-sandbox'],
     });
 
