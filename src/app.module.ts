@@ -10,6 +10,7 @@ import { EnrollmentsModule } from './enrollments/enrollments.module';
 import { TasksModule } from './tasks/tasks.module';
 import { AnalyticsModule } from './analytics/analytics.module';
 import { CleanupModule } from './cleanup/cleanup.module';
+import { PdfModule } from './pdf/pdf.module';
 
 const hasDbUrl =
   !!process.env.DATABASE_URL && process.env.DATABASE_URL.trim() !== '';
@@ -70,6 +71,8 @@ console.log(
     EnrollmentsModule,
     AnalyticsModule,
     CleanupModule,
+    PdfModule,
   ],
 })
 export class AppModule {}
+
