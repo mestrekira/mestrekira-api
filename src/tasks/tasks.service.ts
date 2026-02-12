@@ -53,18 +53,14 @@ export class TasksService {
    * - mantém compatibilidade com o controller do PDF
    * - ordena por createdAt se o TaskEntity tiver esse campo
    */
-  async byRoom(roomId: string) {
-    if (!roomId) return [];
+  // ✅ usado pelo PDF (wrapper correto)
+async byRoom(roomId: string) {
+  if (!roomId) return [];
 
-    // se seu TaskEntity tiver createdAt, ordena desc; se não tiver, não força order
-    // (TypeORM não valida em compile-time, mas isso evita você depender do campo)
-    try {
-      return await this.taskRepo.find({
-        where: { roomId },
-        order: { createdAt: 'DESC' } as any,
-      });
-    } catch {
-      return this.taskRepo.find({ where: { roomId } });
-    }
-  }
+  return this.taskRepo.find({
+    where: { roomId },
+    order: { createdAt: 'DESC' }, // funciona porque TaskEntity tem createdAt
+  });
 }
+}
+
