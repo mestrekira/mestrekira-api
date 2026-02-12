@@ -50,12 +50,15 @@ function formatDateBR(value: any) {
   }
 }
 
-function mean(nums: Array<any>) {
-  const v = nums
+function mean(nums: Array<number | null | undefined>) {
+  const v = (Array.isArray(nums) ? nums : [])
     .map((n) => (n === null || n === undefined ? null : Number(n)))
-    .filter((n) => typeof n === 'number' && !Number.isNaN(n));
+    .filter((n): n is number => typeof n === 'number' && !Number.isNaN(n));
+
   if (v.length === 0) return null;
-  return Math.round(v.reduce((a, b) => a + b, 0) / v.length);
+
+  const sum = v.reduce((acc, cur) => acc + cur, 0);
+  return Math.round(sum / v.length);
 }
 
 // Donut SVG
@@ -90,7 +93,7 @@ function donutSvg({ c1, c2, c3, c4, c5, totalText }: any) {
   const cy = size / 2;
   const r = size / 2 - 2;
 
-  const total = segments.reduce((a, s) => a + s.value, 0);
+ const total = segments.reduce((acc, s) => acc + (Number(s.value) || 0), 0);
   if (total <= 0) return '';
 
   function polarToCartesian(angleDeg: number) {
@@ -346,5 +349,12 @@ export class PdfService {
     } finally {
       await browser.close();
     }
+function toDateSafe(value: any): Date | null {
+  if (value === null || value === undefined || value === '') return null;
+  const d = value instanceof Date ? value : new Date(value);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+    
   }
 }
+
