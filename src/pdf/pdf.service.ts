@@ -1,48 +1,28 @@
 import { Injectable } from '@nestjs/common';
 import puppeteer from 'puppeteer';
 
-type AnyObj = Record<string, any>;
-
-type TaskLike = {
-  id?: string;
-  title?: string;
-  name?: string;
-  taskTitle?: string;
-} & AnyObj;
-
-type EssayLike = {
+type Essay = {
   id: string;
   taskId: string;
-
-  // notas
+  taskTitle?: string;
   score?: number | null;
   c1?: number | null;
   c2?: number | null;
   c3?: number | null;
   c4?: number | null;
   c5?: number | null;
-
-  // texto
   content?: string | null;
-
-  // datas (opcional)
   submittedAt?: any;
   createdAt?: any;
   updatedAt?: any;
+};
 
-  // opcional
-  taskTitle?: string;
-} & AnyObj;
+type Task = { id: string; title: string; createdAt?: any };
 
 function clamp0to200(n: any) {
   const v = Number(n);
   if (Number.isNaN(v)) return 0;
   return Math.max(0, Math.min(200, v));
-}
-
-function safeNum(n: any): number | null {
-  const v = Number(n);
-  return Number.isNaN(v) ? null : v;
 }
 
 function escapeHtml(s: any) {
@@ -54,15 +34,23 @@ function escapeHtml(s: any) {
     .replace(/'/g, '&#039;');
 }
 
-function mean(nums: Array<any>): number | null {
-  const v = (Array.isArray(nums) ? nums : [])
-    .map(safeNum)
-    .filter((x): x is number => typeof x === 'number' && !Number.isNaN(x));
-  if (v.length === 0) return null;
-  return Math.round(v.reduce((a, b) => a + b, 0) / v.length);
+function toDateSafe(value: any): Date | null {
+  if (!value) return null;
+  const d = new Date(value);
+  return Number.isNaN(d.getTime()) ? null : d;
 }
 
-// ✅ Donut em SVG (similar ao seu front)
+function formatDateBR(value: any) {
+  const d = toDateSafe(value);
+  if (!d) return '—';
+  try {
+    return new Intl.DateTimeFormat('pt-BR', { dateStyle: 'short', timeStyle: 'short' }).format(d);
+  } catch {
+    return '—';
+  }
+}
+
+// ✅ Donut SVG (igual seu front)
 function donutSvg({ c1, c2, c3, c4, c5, totalText }: any) {
   const MAX = 1000;
   const used = Math.max(0, Math.min(MAX, c1 + c2 + c3 + c4 + c5));
@@ -133,48 +121,33 @@ function donutSvg({ c1, c2, c3, c4, c5, totalText }: any) {
   </svg>`;
 }
 
-function buildTasksTitleMap(tasks: TaskLike[]) {
-  const map = new Map<string, string>();
-  (Array.isArray(tasks) ? tasks : []).forEach((t) => {
-    const id = String(t?.id ?? '').trim();
-    if (!id) return;
-    const title =
-      String(t?.title ?? t?.taskTitle ?? t?.name ?? '').trim() || 'Tarefa';
-    map.set(id, title);
-  });
-  return map;
+function mean(nums: Array<any>) {
+  const v = nums
+    .map((n) => (n === null || n === undefined ? null : Number(n)))
+    .filter((n) => typeof n === 'number' && !Number.isNaN(n));
+  if (v.length === 0) return null;
+  return Math.round(v.reduce((a, b) => a + b, 0) / v.length);
 }
 
 @Injectable()
 export class PdfService {
-  /**
-   * ✅ Exatamente o que o seu PdfController chama hoje.
-   * Gera PDF do desempenho do aluno (sem feedback).
-   */
+  // ✅ wrapper com o nome que seu controller chama
   async generateStudentPerformancePdf(params: {
-    roomId: string;
-    studentId: string;
-    essays: EssayLike[];
-    tasks: TaskLike[];
+    studentName: string;
+    roomName: string;
+    essays: Essay[];
+    tasks: Task[];
   }): Promise<Buffer> {
-    const { roomId, studentId } = params;
+    const { studentName, roomName, essays, tasks } = params;
 
-    const essaysRaw = Array.isArray(params.essays) ? params.essays : [];
-    const tasksRaw = Array.isArray(params.tasks) ? params.tasks : [];
-
-    const tasksMap = buildTasksTitleMap(tasksRaw);
-
-    // Enriquecer redações com taskTitle
-    const essays: EssayLike[] = essaysRaw.map((e, idx) => {
-      const tTitle =
-        tasksMap.get(String(e?.taskId ?? '').trim()) ||
-        e?.taskTitle ||
-        `Tarefa ${idx + 1}`;
-      return { ...e, taskTitle: tTitle };
+    // map taskId -> title
+    const tasksMap = new Map<string, string>();
+    (Array.isArray(tasks) ? tasks : []).forEach((t) => {
+      if (t?.id) tasksMap.set(String(t.id), String(t.title || 'Tarefa'));
     });
 
-    // médias somente corrigidas
-    const corrected = essays.filter(
+    // Só corrigidas para médias
+    const corrected = (Array.isArray(essays) ? essays : []).filter(
       (e) => e?.score !== null && e?.score !== undefined,
     );
 
@@ -187,33 +160,14 @@ export class PdfService {
       c5: mean(corrected.map((e) => e.c5)),
     };
 
-    // Como seu controller não passa nomes, usamos identificadores por enquanto.
-    // (Se você quiser, depois a gente puxa User/Room via services e coloca aqui.)
-    const studentName = `Aluno (${studentId})`;
-    const roomName = `Sala (${roomId})`;
-
-    return this.performancePdf({
-      studentName,
-      roomName,
-      essays,
-      averages,
+    // ordena por tarefa (se tasks vierem em DESC) e mantém redação por data
+    const sorted = [...(Array.isArray(essays) ? essays : [])].sort((a, b) => {
+      const at = toDateSafe(a?.submittedAt || a?.createdAt || a?.updatedAt)?.getTime?.() ?? -Infinity;
+      const bt = toDateSafe(b?.submittedAt || b?.createdAt || b?.updatedAt)?.getTime?.() ?? -Infinity;
+      return bt - at;
     });
-  }
 
-  private async performancePdf(params: {
-    studentName: string;
-    roomName: string;
-    essays: EssayLike[];
-    averages: {
-      total: number | null;
-      c1: number | null;
-      c2: number | null;
-      c3: number | null;
-      c4: number | null;
-      c5: number | null;
-    };
-  }): Promise<Buffer> {
-    const { studentName, roomName, essays, averages } = params;
+    const nowStr = formatDateBR(new Date());
 
     const html = `
 <!doctype html>
@@ -235,19 +189,22 @@ export class PdfService {
     .sectionTitle { font-size: 14px; font-weight: 900; margin: 14px 0 8px; }
     .task { page-break-inside: avoid; }
     .essayBox { margin-top: 10px; padding: 12px; border-radius: 12px; border: 1px solid #e5e7eb; white-space: pre-wrap; line-height: 1.6; text-align: justify; }
-    .badge { display:inline-block; font-size:11px; font-weight:900; padding:3px 8px; border-radius:999px; border:1px solid #e5e7eb; background:#f8fafc; }
+    .pill { display:inline-block; padding: 3px 8px; border-radius: 999px; font-size: 11px; font-weight: 900; background: rgba(109,40,217,.12); border: 1px solid rgba(109,40,217,.35); }
+    @page { size: A4; margin: 14mm 12mm; }
   </style>
 </head>
 <body>
   <h1>Desempenho do aluno</h1>
   <div class="sub">
-    Aluno: <strong>${escapeHtml(studentName)}</strong> • Sala: <strong>${escapeHtml(roomName)}</strong>
+    Aluno: <strong>${escapeHtml(studentName)}</strong> •
+    Sala: <strong>${escapeHtml(roomName)}</strong> •
+    Gerado em: <strong>${escapeHtml(nowStr)}</strong>
   </div>
 
   <div class="card">
     <div class="row">
-      <div>
-        <div class="sectionTitle">Média geral (somente redações corrigidas)</div>
+      <div style="min-width: 260px;">
+        <div class="sectionTitle">Média geral <span class="pill">somente corrigidas</span></div>
         <div class="muted">Total: ${averages.total ?? '—'} / 1000</div>
       </div>
       <div>
@@ -289,35 +246,37 @@ export class PdfService {
 
   <div class="sectionTitle">Histórico por tarefa</div>
 
-  ${essays
+  ${sorted
     .map((e, idx) => {
-      const score = e?.score ?? null;
-      const c1 = clamp0to200(e?.c1);
-      const c2 = clamp0to200(e?.c2);
-      const c3 = clamp0to200(e?.c3);
-      const c4 = clamp0to200(e?.c4);
-      const c5 = clamp0to200(e?.c5);
+      const score = e.score ?? null;
+      const c1 = clamp0to200(e.c1);
+      const c2 = clamp0to200(e.c2);
+      const c3 = clamp0to200(e.c3);
+      const c4 = clamp0to200(e.c4);
+      const c5 = clamp0to200(e.c5);
+
+      const title = e.taskTitle || tasksMap.get(String(e.taskId)) || `Tarefa ${idx + 1}`;
+      const sentAt = formatDateBR(e.submittedAt || e.createdAt || e.updatedAt);
 
       return `
       <div class="card task">
         <div style="display:flex; justify-content:space-between; gap:12px; flex-wrap:wrap;">
           <div>
-            <div style="font-weight:900;">${escapeHtml(e?.taskTitle || `Tarefa ${idx + 1}`)}</div>
-            <div class="muted">Nota: ${
-              score === null ? '— (não corrigida)' : `${score} / 1000`
-            }</div>
+            <div style="font-weight:900;">${escapeHtml(title)}</div>
+            <div class="muted">Enviada em: ${escapeHtml(sentAt)}</div>
+            <div class="muted">Nota: ${score === null ? '— (não corrigida)' : `${score} / 1000`}</div>
           </div>
           <div>
             ${
               score === null
-                ? `<span class="badge">Sem gráfico</span>`
+                ? `<div class="muted">Sem gráfico (não corrigida).</div>`
                 : donutSvg({ c1, c2, c3, c4, c5, totalText: String(score) })
             }
           </div>
         </div>
 
         ${
-          e?.content
+          e.content
             ? `<div class="essayBox"><strong>Redação</strong>\n\n${escapeHtml(e.content)}</div>`
             : ''
         }
@@ -328,8 +287,9 @@ export class PdfService {
 </html>
 `;
 
+    // ✅ para evitar o erro do tipo "new": use true (funciona bem no Render)
     const browser = await puppeteer.launch({
-      headless: true, // ✅ Render-friendly e sem erro TS
+      headless: true,
       args: ['--no-sandbox', '--disable-setuid-sandbox'],
     });
 
