@@ -54,13 +54,14 @@ export class TasksService {
    * - ordena por createdAt se o TaskEntity tiver esse campo
    */
   // ✅ usado pelo PDF (wrapper correto)
+// ✅ usado pelo PDF (wrapper)
 async byRoom(roomId: string) {
   if (!roomId) return [];
-
   return this.taskRepo.find({
     where: { roomId },
-    order: { createdAt: 'DESC' }, // funciona porque TaskEntity tem createdAt
+    order: { createdAt: 'DESC' as any },
   });
 }
 }
+
 
