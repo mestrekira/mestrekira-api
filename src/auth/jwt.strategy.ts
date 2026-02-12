@@ -3,10 +3,8 @@ import { PassportStrategy } from '@nestjs/passport';
 import { ExtractJwt, Strategy } from 'passport-jwt';
 
 type JwtPayload = {
-  sub?: string; // padrão comum
-  id?: string;  // alguns sistemas usam isso
-  role?: string;
-  email?: string;
+  sub: string;   // id do usuário
+  role: string;  // student | professor
 };
 
 @Injectable()
@@ -15,17 +13,20 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
     super({
       jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
       ignoreExpiration: false,
-      secretOrKey: process.env.JWT_SECRET || 'dev_secret_change_me',
+      secretOrKey:
+        (process.env.JWT_SECRET || '').trim() ||
+        'DEV_ONLY_CHANGE_ME__MESTRE_KIRA',
     });
   }
 
   async validate(payload: JwtPayload) {
-    const id = payload?.sub || payload?.id;
-    if (!id) throw new UnauthorizedException('Token inválido.');
+    if (!payload?.sub) {
+      throw new UnauthorizedException('Token inválido.');
+    }
+
     return {
-      id: String(id),
-      role: payload?.role,
-      email: payload?.email,
+      id: String(payload.sub),
+      role: payload.role,
     };
   }
 }
