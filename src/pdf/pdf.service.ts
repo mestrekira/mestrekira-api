@@ -36,7 +36,7 @@ function escapeHtml(s: any) {
 
 function toDateSafe(value: any): Date | null {
   if (!value) return null;
-  const d = new Date(value);
+  const d = value instanceof Date ? value : new Date(value);
   return Number.isNaN(d.getTime()) ? null : d;
 }
 
@@ -50,7 +50,15 @@ function formatDateBR(value: any) {
   }
 }
 
-// ✅ Donut SVG (igual seu front)
+function mean(nums: Array<any>) {
+  const v = nums
+    .map((n) => (n === null || n === undefined ? null : Number(n)))
+    .filter((n) => typeof n === 'number' && !Number.isNaN(n));
+  if (v.length === 0) return null;
+  return Math.round(v.reduce((a, b) => a + b, 0) / v.length);
+}
+
+// Donut SVG
 function donutSvg({ c1, c2, c3, c4, c5, totalText }: any) {
   const MAX = 1000;
   const used = Math.max(0, Math.min(MAX, c1 + c2 + c3 + c4 + c5));
@@ -121,17 +129,8 @@ function donutSvg({ c1, c2, c3, c4, c5, totalText }: any) {
   </svg>`;
 }
 
-function mean(nums: Array<any>) {
-  const v = nums
-    .map((n) => (n === null || n === undefined ? null : Number(n)))
-    .filter((n) => typeof n === 'number' && !Number.isNaN(n));
-  if (v.length === 0) return null;
-  return Math.round(v.reduce((a, b) => a + b, 0) / v.length);
-}
-
 @Injectable()
 export class PdfService {
-  // ✅ wrapper com o nome que seu controller chama
   async generateStudentPerformancePdf(params: {
     studentName: string;
     roomName: string;
@@ -140,17 +139,18 @@ export class PdfService {
   }): Promise<Buffer> {
     const { studentName, roomName, essays, tasks } = params;
 
-    // map taskId -> title
     const tasksMap = new Map<string, string>();
     (Array.isArray(tasks) ? tasks : []).forEach((t) => {
       if (t?.id) tasksMap.set(String(t.id), String(t.title || 'Tarefa'));
     });
 
-    // Só corrigidas para médias
-    const corrected = (Array.isArray(essays) ? essays : []).filter(
-      (e) => e?.score !== null && e?.score !== undefined,
-    );
+    const sorted = [...(Array.isArray(essays) ? essays : [])].sort((a, b) => {
+      const at = toDateSafe(a?.submittedAt || a?.createdAt || a?.updatedAt)?.getTime?.() ?? -Infinity;
+      const bt = toDateSafe(b?.submittedAt || b?.createdAt || b?.updatedAt)?.getTime?.() ?? -Infinity;
+      return bt - at;
+    });
 
+    const corrected = sorted.filter((e) => e?.score !== null && e?.score !== undefined);
     const averages = {
       total: mean(corrected.map((e) => e.score)),
       c1: mean(corrected.map((e) => e.c1)),
@@ -160,14 +160,16 @@ export class PdfService {
       c5: mean(corrected.map((e) => e.c5)),
     };
 
-    // ordena por tarefa (se tasks vierem em DESC) e mantém redação por data
-    const sorted = [...(Array.isArray(essays) ? essays : [])].sort((a, b) => {
-      const at = toDateSafe(a?.submittedAt || a?.createdAt || a?.updatedAt)?.getTime?.() ?? -Infinity;
-      const bt = toDateSafe(b?.submittedAt || b?.createdAt || b?.updatedAt)?.getTime?.() ?? -Infinity;
-      return bt - at;
-    });
-
     const nowStr = formatDateBR(new Date());
+
+    const summaryRows = sorted
+      .map((e, i) => {
+        const title = e.taskTitle || tasksMap.get(String(e.taskId)) || `Tarefa ${i + 1}`;
+        const sentAt = formatDateBR(e.submittedAt || e.createdAt || e.updatedAt);
+        const score = e.score === null || e.score === undefined ? '—' : `${e.score}`;
+        return `<tr><td>${escapeHtml(title)}</td><td>${escapeHtml(sentAt)}</td><td style="text-align:right;">${escapeHtml(score)}</td></tr>`;
+      })
+      .join('');
 
     const html = `
 <!doctype html>
@@ -176,7 +178,14 @@ export class PdfService {
   <meta charset="utf-8"/>
   <style>
     * { box-sizing: border-box; }
-    body { font-family: Arial, sans-serif; color: #0b1220; margin: 22px; }
+    body { font-family: Arial, sans-serif; color: #0b1220; }
+    .page { padding: 22px; }
+    .cover { display:flex; flex-direction:column; justify-content:center; height: 92vh; }
+    .brand { font-size: 28px; font-weight: 900; letter-spacing: .2px; }
+    .subtitle { margin-top: 6px; font-size: 13px; opacity: .82; }
+    .meta { margin-top: 18px; font-size: 13px; }
+    .pill { display:inline-block; padding: 3px 8px; border-radius: 999px; font-size: 11px; font-weight: 900; background: rgba(109,40,217,.12); border: 1px solid rgba(109,40,217,.35); }
+    .break { page-break-after: always; }
     h1 { font-size: 18px; margin: 0 0 6px; }
     .sub { font-size: 12px; opacity: .8; margin-bottom: 16px; }
     .card { border: 1px solid #e5e7eb; border-radius: 14px; padding: 14px; margin-bottom: 12px; }
@@ -187,107 +196,137 @@ export class PdfService {
     .kpi .val { font-size: 16px; font-weight: 800; margin-top: 2px; }
     .muted { font-size: 12px; opacity: .8; }
     .sectionTitle { font-size: 14px; font-weight: 900; margin: 14px 0 8px; }
+    table { width:100%; border-collapse: collapse; }
+    th, td { font-size: 12px; padding: 8px; border-bottom: 1px solid #e5e7eb; vertical-align: top; }
+    th { text-align: left; opacity: .85; }
     .task { page-break-inside: avoid; }
     .essayBox { margin-top: 10px; padding: 12px; border-radius: 12px; border: 1px solid #e5e7eb; white-space: pre-wrap; line-height: 1.6; text-align: justify; }
-    .pill { display:inline-block; padding: 3px 8px; border-radius: 999px; font-size: 11px; font-weight: 900; background: rgba(109,40,217,.12); border: 1px solid rgba(109,40,217,.35); }
     @page { size: A4; margin: 14mm 12mm; }
   </style>
 </head>
 <body>
-  <h1>Desempenho do aluno</h1>
-  <div class="sub">
-    Aluno: <strong>${escapeHtml(studentName)}</strong> •
-    Sala: <strong>${escapeHtml(roomName)}</strong> •
-    Gerado em: <strong>${escapeHtml(nowStr)}</strong>
-  </div>
 
-  <div class="card">
-    <div class="row">
-      <div style="min-width: 260px;">
-        <div class="sectionTitle">Média geral <span class="pill">somente corrigidas</span></div>
-        <div class="muted">Total: ${averages.total ?? '—'} / 1000</div>
-      </div>
-      <div>
-        ${
-          averages.total !== null
-            ? donutSvg({
-                c1: averages.c1 ?? 0,
-                c2: averages.c2 ?? 0,
-                c3: averages.c3 ?? 0,
-                c4: averages.c4 ?? 0,
-                c5: averages.c5 ?? 0,
-                totalText: String(averages.total),
-              })
-            : `<div class="muted">Sem correções ainda.</div>`
-        }
-      </div>
-    </div>
+  <!-- CAPA -->
+  <div class="page cover break">
+    <div class="brand">Mestre Kira</div>
+    <div class="subtitle">Relatório de desempenho (Redações + Gráficos)</div>
 
-    <div class="kpis" style="margin-top:12px;">
-      ${[
-        ['Total', averages.total],
-        ['C1', averages.c1],
-        ['C2', averages.c2],
-        ['C3', averages.c3],
-        ['C4', averages.c4],
-        ['C5', averages.c5],
-      ]
-        .map(
-          ([lab, val]) => `
-          <div class="kpi">
-            <div class="lab">${lab}</div>
-            <div class="val">${val ?? '—'}</div>
-          </div>
-        `,
-        )
-        .join('')}
+    <div class="meta">
+      <div>Aluno: <strong>${escapeHtml(studentName)}</strong></div>
+      <div>Sala: <strong>${escapeHtml(roomName)}</strong></div>
+      <div>Gerado em: <strong>${escapeHtml(nowStr)}</strong></div>
     </div>
   </div>
 
-  <div class="sectionTitle">Histórico por tarefa</div>
+  <!-- CONTEÚDO -->
+  <div class="page">
+    <h1>Desempenho do aluno</h1>
+    <div class="sub">
+      Aluno: <strong>${escapeHtml(studentName)}</strong> • Sala: <strong>${escapeHtml(roomName)}</strong>
+    </div>
 
-  ${sorted
-    .map((e, idx) => {
-      const score = e.score ?? null;
-      const c1 = clamp0to200(e.c1);
-      const c2 = clamp0to200(e.c2);
-      const c3 = clamp0to200(e.c3);
-      const c4 = clamp0to200(e.c4);
-      const c5 = clamp0to200(e.c5);
+    <div class="card">
+      <div class="sectionTitle">Resumo <span class="pill">somente corrigidas</span></div>
 
-      const title = e.taskTitle || tasksMap.get(String(e.taskId)) || `Tarefa ${idx + 1}`;
-      const sentAt = formatDateBR(e.submittedAt || e.createdAt || e.updatedAt);
-
-      return `
-      <div class="card task">
-        <div style="display:flex; justify-content:space-between; gap:12px; flex-wrap:wrap;">
-          <div>
-            <div style="font-weight:900;">${escapeHtml(title)}</div>
-            <div class="muted">Enviada em: ${escapeHtml(sentAt)}</div>
-            <div class="muted">Nota: ${score === null ? '— (não corrigida)' : `${score} / 1000`}</div>
-          </div>
-          <div>
-            ${
-              score === null
-                ? `<div class="muted">Sem gráfico (não corrigida).</div>`
-                : donutSvg({ c1, c2, c3, c4, c5, totalText: String(score) })
-            }
-          </div>
+      <div class="row">
+        <div style="min-width: 260px;">
+          <div class="muted">Média total: <strong>${averages.total ?? '—'}</strong> / 1000</div>
         </div>
+        <div>
+          ${
+            averages.total !== null
+              ? donutSvg({
+                  c1: averages.c1 ?? 0,
+                  c2: averages.c2 ?? 0,
+                  c3: averages.c3 ?? 0,
+                  c4: averages.c4 ?? 0,
+                  c5: averages.c5 ?? 0,
+                  totalText: String(averages.total),
+                })
+              : `<div class="muted">Sem correções ainda.</div>`
+          }
+        </div>
+      </div>
 
-        ${
-          e.content
-            ? `<div class="essayBox"><strong>Redação</strong>\n\n${escapeHtml(e.content)}</div>`
-            : ''
-        }
-      </div>`;
-    })
-    .join('')}
+      <div class="kpis" style="margin-top:12px;">
+        ${[
+          ['Total', averages.total],
+          ['C1', averages.c1],
+          ['C2', averages.c2],
+          ['C3', averages.c3],
+          ['C4', averages.c4],
+          ['C5', averages.c5],
+        ]
+          .map(
+            ([lab, val]) => `
+            <div class="kpi">
+              <div class="lab">${lab}</div>
+              <div class="val">${val ?? '—'}</div>
+            </div>
+          `,
+          )
+          .join('')}
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="sectionTitle">Sumário (tarefas)</div>
+      <table>
+        <thead>
+          <tr><th>Tarefa</th><th>Enviada em</th><th style="text-align:right;">Nota</th></tr>
+        </thead>
+        <tbody>
+          ${summaryRows || `<tr><td colspan="3">Nenhuma redação encontrada.</td></tr>`}
+        </tbody>
+      </table>
+    </div>
+
+    <div class="sectionTitle">Detalhes por tarefa</div>
+
+    ${sorted
+      .map((e, idx) => {
+        const score = e.score ?? null;
+        const c1 = clamp0to200(e.c1);
+        const c2 = clamp0to200(e.c2);
+        const c3 = clamp0to200(e.c3);
+        const c4 = clamp0to200(e.c4);
+        const c5 = clamp0to200(e.c5);
+
+        const title = e.taskTitle || tasksMap.get(String(e.taskId)) || `Tarefa ${idx + 1}`;
+        const sentAt = formatDateBR(e.submittedAt || e.createdAt || e.updatedAt);
+
+        return `
+        <div class="card task">
+          <div style="display:flex; justify-content:space-between; gap:12px; flex-wrap:wrap;">
+            <div>
+              <div style="font-weight:900;">${escapeHtml(title)}</div>
+              <div class="muted">Enviada em: ${escapeHtml(sentAt)}</div>
+              <div class="muted">Nota: ${
+                score === null ? '— (não corrigida)' : `${escapeHtml(score)} / 1000`
+              }</div>
+            </div>
+            <div>
+              ${
+                score === null
+                  ? `<div class="muted">Sem gráfico (não corrigida).</div>`
+                  : donutSvg({ c1, c2, c3, c4, c5, totalText: String(score) })
+              }
+            </div>
+          </div>
+
+          ${
+            e.content
+              ? `<div class="essayBox"><strong>Redação</strong>\n\n${escapeHtml(e.content)}</div>`
+              : ''
+          }
+        </div>`;
+      })
+      .join('')}
+  </div>
 </body>
 </html>
 `;
 
-    // ✅ para evitar o erro do tipo "new": use true (funciona bem no Render)
     const browser = await puppeteer.launch({
       headless: true,
       args: ['--no-sandbox', '--disable-setuid-sandbox'],
