@@ -47,4 +47,14 @@ export class TasksService {
     await this.taskRepo.delete(id);
     return { ok: true };
   }
+
+  // ✅ usado pelo PDF (wrapper)
+async byRoom(roomId: string) {
+  if (!roomId) return [];
+  return this.tasksRepository.find({
+    where: { roomId },
+    order: { createdAt: 'DESC' },
+  });
 }
+}
+
