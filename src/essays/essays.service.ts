@@ -51,7 +51,9 @@ export class EssaysService {
     const text = String(content ?? '');
 
     // ⚠️ Mantém seu comportamento atual (1 linha por task+student)
-    const existing = await this.essayRepo.findOne({ where: { taskId, studentId } });
+    const existing = await this.essayRepo.findOne({
+      where: { taskId, studentId },
+    });
 
     // já enviada: não deixa virar rascunho novamente
     if (existing && existing.isDraft === false) {
@@ -75,7 +77,9 @@ export class EssaysService {
         if (!this.isUniqueViolation(err)) throw err;
 
         // recarrega e segue o fluxo padrão (update)
-        const again = await this.essayRepo.findOne({ where: { taskId, studentId } });
+        const again = await this.essayRepo.findOne({
+          where: { taskId, studentId },
+        });
 
         if (again && again.isDraft === false) {
           throw new ConflictException(
@@ -114,10 +118,14 @@ export class EssaysService {
       );
     }
 
-    const existing = await this.essayRepo.findOne({ where: { taskId, studentId } });
+    const existing = await this.essayRepo.findOne({
+      where: { taskId, studentId },
+    });
 
     if (existing && existing.isDraft === false) {
-      throw new ConflictException('Você já enviou esta redação para esta tarefa.');
+      throw new ConflictException(
+        'Você já enviou esta redação para esta tarefa.',
+      );
     }
 
     // se não existe, cria enviada
@@ -301,57 +309,84 @@ export class EssaysService {
   }
 
   // ✅ aluno: desempenho por sala (só dele) — também sem rascunhos
+  // (mantém compatibilidade com o front, mas agora inclui taskTitle)
   async performanceByRoomForStudent(roomId: string, studentId: string) {
     const tasks = await this.taskRepo.find({ where: { roomId } });
     if (tasks.length === 0) return [];
 
     const taskIds = tasks.map((t) => t.id);
+    const taskMap = new Map(tasks.map((t) => [t.id, t]));
 
     const essays = await this.essayRepo.find({
       where: { taskId: In(taskIds), studentId, isDraft: false },
       order: { createdAt: 'DESC' as any, id: 'ASC' as any },
     });
 
-    return essays.map((e) => ({
-      id: e.id,
-      taskId: e.taskId,
-      isDraft: e.isDraft ?? false,
-      score: e.score ?? null,
-      c1: e.c1 ?? null,
-      c2: e.c2 ?? null,
-      c3: e.c3 ?? null,
-      c4: e.c4 ?? null,
-      c5: e.c5 ?? null,
-      feedback: e.feedback ?? null,
+    return essays.map((e) => {
+      const t = taskMap.get(e.taskId);
 
-      // ✅ DATAS
-      createdAt: e.createdAt ?? null,
-      updatedAt: e.updatedAt ?? null,
-    }));
+      return {
+        id: e.id,
+        taskId: e.taskId,
+        taskTitle: t?.title ?? '(tarefa)',
+        isDraft: e.isDraft ?? false,
 
-    async findEssaysWithContentByRoomForStudent(roomId: string, studentId: string) {
-  return this.essayRepo.find({
-    where: {
-      roomId,
-      studentId,
-    } as any,
-    select: [
-      'id',
-      'taskId',
-      'score',
-      'c1',
-      'c2',
-      'c3',
-      'c4',
-      'c5',
-      'content',
-      'submittedAt',
-      'createdAt',
-      'updatedAt',
-    ] as any,
-    order: { updatedAt: 'DESC' } as any,
-  });
-}
+        score: e.score ?? null,
+        c1: e.c1 ?? null,
+        c2: e.c2 ?? null,
+        c3: e.c3 ?? null,
+        c4: e.c4 ?? null,
+        c5: e.c5 ?? null,
+
+        feedback: e.feedback ?? null,
+
+        // ✅ DATAS
+        createdAt: e.createdAt ?? null,
+        updatedAt: e.updatedAt ?? null,
+      };
+    });
+  }
+
+  /**
+   * ✅ PDF: pega redações COMPLETAS (inclui content) por sala + aluno
+   * - EssayEntity não tem roomId, então filtramos por tasks da sala
+   * - sem rascunhos
+   * - devolve content já "limpo" (sem __TITLE__)
+   */
+  async findEssaysWithContentByRoomForStudent(roomId: string, studentId: string) {
+    const tasks = await this.taskRepo.find({ where: { roomId } });
+    if (tasks.length === 0) return [];
+
+    const taskIds = tasks.map((t) => t.id);
+    const taskMap = new Map(tasks.map((t) => [t.id, t]));
+
+    const essays = await this.essayRepo.find({
+      where: { taskId: In(taskIds), studentId, isDraft: false },
+      order: { createdAt: 'DESC' as any, id: 'ASC' as any },
+    });
+
+    return essays.map((e) => {
+      const t = taskMap.get(e.taskId);
+
+      return {
+        id: e.id,
+        taskId: e.taskId,
+        taskTitle: t?.title ?? '(tarefa)',
+
+        score: e.score ?? null,
+        c1: e.c1 ?? null,
+        c2: e.c2 ?? null,
+        c3: e.c3 ?? null,
+        c4: e.c4 ?? null,
+        c5: e.c5 ?? null,
+
+        // ✅ aqui vem o texto
+        content: this.extractBodyFromPackedContent(e.content ?? ''),
+
+        // ✅ datas
+        createdAt: e.createdAt ?? null,
+        updatedAt: e.updatedAt ?? null,
+      };
+    });
   }
 }
-
