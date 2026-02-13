@@ -1,6 +1,8 @@
 import { Injectable } from '@nestjs/common';
 import puppeteer from 'puppeteer-core';
 import chromium from '@sparticuz/chromium';
+import * as fs from 'fs';
+import * as path from 'path';
 
 type Essay = {
   id: string;
@@ -67,11 +69,20 @@ function mean(nums: Array<number | null | undefined>) {
 
 // Donut SVG segmentado (C1..C5 colorido)
 function donutSvgSegments({
-  c1, c2, c3, c4, c5, totalText,
+  c1,
+  c2,
+  c3,
+  c4,
+  c5,
+  totalText,
   size = 110,
   hole = 36,
 }: {
-  c1: number; c2: number; c3: number; c4: number; c5: number;
+  c1: number;
+  c2: number;
+  c3: number;
+  c4: number;
+  c5: number;
   totalText: string;
   size?: number;
   hole?: number;
@@ -144,6 +155,48 @@ function donutSvgSegments({
   </svg>`;
 }
 
+/**
+ * ✅ Logo: prioridade (mais estável no Render)
+ * 1) PDF_LOGO_PATH (caminho local)
+ * 2) ./assets/logo.png (projeto)
+ * 3) PDF_LOGO_URL (url pública)
+ */
+function resolveLogoDataUrl(): { dataUrl: string; kind: 'data' | 'url' | 'none' } {
+  const envPath = (process.env.PDF_LOGO_PATH || '').trim();
+  const envUrl = (process.env.PDF_LOGO_URL || '').trim();
+
+  const candidates: string[] = [];
+
+  if (envPath) candidates.push(envPath);
+  // caminho padrão do projeto: ./assets/logo.png
+  candidates.push(path.join(process.cwd(), 'assets', 'logo.png'));
+  candidates.push(path.join(process.cwd(), 'assets', 'logo.jpg'));
+  candidates.push(path.join(process.cwd(), 'assets', 'logo.jpeg'));
+
+  for (const p of candidates) {
+    try {
+      if (!p) continue;
+      if (!fs.existsSync(p)) continue;
+      const ext = path.extname(p).toLowerCase();
+      const mime =
+        ext === '.png'
+          ? 'image/png'
+          : ext === '.jpg' || ext === '.jpeg'
+            ? 'image/jpeg'
+            : '';
+      if (!mime) continue;
+
+      const base64 = fs.readFileSync(p, 'base64');
+      return { dataUrl: `data:${mime};base64,${base64}`, kind: 'data' };
+    } catch {
+      // ignora e tenta o próximo
+    }
+  }
+
+  if (envUrl) return { dataUrl: envUrl, kind: 'url' };
+  return { dataUrl: '', kind: 'none' };
+}
+
 @Injectable()
 export class PdfService {
   async generateStudentPerformancePdf(params: {
@@ -153,8 +206,6 @@ export class PdfService {
     tasks: Task[];
   }): Promise<Buffer> {
     const { studentName, roomName, essays, tasks } = params;
-
-    const logoUrl = (process.env.PDF_LOGO_URL || '').trim(); // ✅ defina no Render
 
     const tasksMap = new Map<string, string>();
     (Array.isArray(tasks) ? tasks : []).forEach((t) => {
@@ -171,9 +222,7 @@ export class PdfService {
       return bt - at;
     });
 
-    const corrected = sorted.filter(
-      (e) => e?.score !== null && e?.score !== undefined,
-    );
+    const corrected = sorted.filter((e) => e?.score !== null && e?.score !== undefined);
 
     const averages = {
       total: mean(corrected.map((e) => e.score)),
@@ -186,15 +235,14 @@ export class PdfService {
 
     const nowStr = formatDateBR(new Date());
 
+    const { dataUrl: logoSrc, kind: logoKind } = resolveLogoDataUrl();
+    const hasLogo = !!logoSrc;
+
     const summaryRows = sorted
       .map((e, i) => {
-        const title =
-          e.taskTitle ||
-          tasksMap.get(String(e.taskId)) ||
-          `Tarefa ${i + 1}`;
+        const title = e.taskTitle || tasksMap.get(String(e.taskId)) || `Tarefa ${i + 1}`;
         const sentAt = formatDateBR(e.submittedAt || e.createdAt || e.updatedAt);
-        const score =
-          e.score === null || e.score === undefined ? '—' : `${e.score}`;
+        const score = e.score === null || e.score === undefined ? '—' : `${e.score}`;
         return `<tr><td>${escapeHtml(title)}</td><td>${escapeHtml(sentAt)}</td><td style="text-align:right;">${escapeHtml(score)}</td></tr>`;
       })
       .join('');
@@ -202,8 +250,7 @@ export class PdfService {
     // Mini cards com gráficos por redação (no resumo)
     const miniCards = sorted
       .map((e, idx) => {
-        const title =
-          e.taskTitle || tasksMap.get(String(e.taskId)) || `Tarefa ${idx + 1}`;
+        const title = e.taskTitle || tasksMap.get(String(e.taskId)) || `Tarefa ${idx + 1}`;
         const sentAt = formatDateBR(e.submittedAt || e.createdAt || e.updatedAt);
 
         if (e.score == null) {
@@ -231,7 +278,14 @@ export class PdfService {
                 <div class="mini-score-num">${escapeHtml(e.score)}</div>
                 <div class="mini-muted">/ 1000</div>
               </div>
-              <div>${donutSvgSegments({ c1, c2, c3, c4, c5, totalText: String(e.score), size: 88, hole: 28 })}</div>
+              <div>
+                ${donutSvgSegments({
+                  c1, c2, c3, c4, c5,
+                  totalText: String(e.score),
+                  size: 88,
+                  hole: 28,
+                })}
+              </div>
             </div>
           </div>
         `;
@@ -248,19 +302,34 @@ export class PdfService {
       --ink:#0f172a; --muted:#64748b; --line:#e5e7eb; --soft:#f1f5f9;
     }
     * { box-sizing: border-box; }
-    body { font-family: Arial, sans-serif; color: var(--ink); }
+    body { font-family: Arial, sans-serif; color: var(--ink); margin:0; }
     .page { padding: 22px; }
-    .cover { display:flex; flex-direction:column; justify-content:center; height: 92vh; }
+    .cover {
+      display:flex; flex-direction:column; justify-content:center;
+      height: 92vh;
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      margin: 10px;
+      padding: 26px;
+      background: #fff;
+    }
     .brand { display:flex; align-items:center; gap:12px; }
-    .brand-title { font-size: 26px; font-weight: 900; letter-spacing: .2px; }
-    .logo { height: 42px; width: auto; display: ${logoUrl ? 'block' : 'none'}; }
-    .subtitle { margin-top: 6px; font-size: 13px; color: var(--muted); }
-    .meta { margin-top: 18px; font-size: 13px; }
+    .brand-title { font-size: 28px; font-weight: 900; letter-spacing: .2px; }
+    .logo { height: 46px; width: auto; display: ${hasLogo ? 'block' : 'none'}; }
+    .subtitle { margin-top: 8px; font-size: 13px; color: var(--muted); }
+    .meta { margin-top: 18px; font-size: 13px; color: var(--ink); line-height:1.6; }
     .break { page-break-after: always; }
 
     h1 { font-size: 18px; margin: 0 0 6px; }
     .sub { font-size: 12px; color: var(--muted); margin-bottom: 16px; }
-    .card { border: 1px solid var(--line); border-radius: 16px; padding: 14px; margin-bottom: 12px; background:#fff; }
+    .card {
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      padding: 14px;
+      margin-bottom: 12px;
+      background:#fff;
+      box-shadow: 0 1px 0 rgba(15,23,42,.04);
+    }
     .row { display: flex; gap: 14px; flex-wrap: wrap; align-items: center; justify-content: space-between; }
 
     .kpis { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 10px; width: 100%; margin-top:12px; }
@@ -269,10 +338,10 @@ export class PdfService {
     .kpi .val { font-size: 16px; font-weight: 900; margin-top: 2px; }
 
     .sectionTitle { font-size: 14px; font-weight: 900; margin: 14px 0 8px; }
-
     table { width:100%; border-collapse: collapse; }
     th, td { font-size: 12px; padding: 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
-    th { text-align: left; color: var(--muted); }
+    th { text-align: left; color: var(--muted); background: var(--soft); }
+    tr:last-child td { border-bottom: none; }
 
     .cards-grid { display:grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 10px; }
     .mini-card { border:1px solid var(--line); border-radius:14px; padding:10px; background:#fff; }
@@ -283,35 +352,51 @@ export class PdfService {
 
     .task { page-break-inside: avoid; break-inside: avoid; }
     .essayBox {
-      margin-top: 10px; padding: 12px; border-radius: 12px;
-      border: 1px solid var(--line); background: var(--soft);
-      white-space: pre-wrap; line-height: 1.7; text-align: justify;
+      margin-top: 10px;
+      padding: 14px;
+      border-radius: 14px;
+      border: 1px solid var(--line);
+      background: var(--soft);
+      white-space: pre-wrap;
+      line-height: 1.75;
+      text-align: justify;
       font-size: 13px;
     }
 
-    @page { size: A4; margin: 14mm 12mm; }
+    .legend { display:flex; flex-wrap:wrap; gap:8px; margin-top:8px; }
+    .chip { display:inline-flex; align-items:center; gap:6px; padding:6px 10px; border:1px solid var(--line); border-radius:999px; font-size:11px; color:var(--muted); background:#fff; }
+    .dot { width:10px; height:10px; border-radius:999px; display:inline-block; }
+    .dot.c1{background:#4f46e5}.dot.c2{background:#16a34a}.dot.c3{background:#f59e0b}.dot.c4{background:#0ea5e9}.dot.c5{background:#ef4444}
+
+    @page { size: A4; margin: 18mm 12mm; }
     .avoid-break { page-break-inside: avoid; break-inside: avoid; }
   </style>
 </head>
 <body>
 
-  <div class="page cover break">
+  <!-- CAPA -->
+  <div class="cover break">
     <div class="brand">
-      ${logoUrl ? `<img class="logo" src="${escapeHtml(logoUrl)}" alt="Mestre Kira"/>` : ``}
+      ${hasLogo ? `<img class="logo" src="${escapeHtml(logoSrc)}" alt="Mestre Kira"/>` : ``}
       <div class="brand-title">Mestre Kira</div>
     </div>
-    <div class="subtitle">Relatório de desempenho (Redações + Gráficos)</div>
+    <div class="subtitle">Relatório de Desempenho (Redações + Gráficos)</div>
 
     <div class="meta">
       <div>Aluno: <strong>${escapeHtml(studentName)}</strong></div>
       <div>Sala: <strong>${escapeHtml(roomName)}</strong></div>
       <div>Gerado em: <strong>${escapeHtml(nowStr)}</strong></div>
+      ${logoKind === 'none'
+        ? `<div style="margin-top:10px; color:#64748b; font-size:11px;">
+             (Dica: adicione ./assets/logo.png ou defina PDF_LOGO_URL/PDF_LOGO_PATH)
+           </div>`
+        : ``}
     </div>
   </div>
 
   <div class="page">
     <h1>Resumo Geral</h1>
-    <div class="sub">Resumo geral + gráficos por redação.</div>
+    <div class="sub">Média geral e gráficos por redação.</div>
 
     <div class="card">
       <div class="sectionTitle">Média (somente corrigidas)</div>
@@ -320,7 +405,16 @@ export class PdfService {
         <div style="min-width: 260px;">
           <div class="mini-muted">Média total: <strong>${averages.total ?? '—'}</strong> / 1000</div>
           <div class="mini-muted">Sala: <strong>${escapeHtml(roomName)}</strong></div>
+
+          <div class="legend">
+            <span class="chip"><span class="dot c1"></span> C1</span>
+            <span class="chip"><span class="dot c2"></span> C2</span>
+            <span class="chip"><span class="dot c3"></span> C3</span>
+            <span class="chip"><span class="dot c4"></span> C4</span>
+            <span class="chip"><span class="dot c5"></span> C5</span>
+          </div>
         </div>
+
         <div>
           ${
             averages.total !== null
@@ -331,8 +425,8 @@ export class PdfService {
                   c4: averages.c4 ?? 0,
                   c5: averages.c5 ?? 0,
                   totalText: String(averages.total),
-                  size: 110,
-                  hole: 36,
+                  size: 120,
+                  hole: 38,
                 })
               : `<div class="mini-muted">Sem correções ainda.</div>`
           }
@@ -388,15 +482,14 @@ export class PdfService {
         const c4 = clamp0to200(e.c4);
         const c5 = clamp0to200(e.c5);
 
-        const title =
-          e.taskTitle || tasksMap.get(String(e.taskId)) || `Tarefa ${idx + 1}`;
+        const title = e.taskTitle || tasksMap.get(String(e.taskId)) || `Tarefa ${idx + 1}`;
         const sentAt = formatDateBR(e.submittedAt || e.createdAt || e.updatedAt);
 
         return `
         <div class="card task">
-          <div style="display:flex; justify-content:space-between; gap:12px; flex-wrap:wrap;">
+          <div style="display:flex; justify-content:space-between; gap:12px; flex-wrap:wrap; align-items:center;">
             <div>
-              <div style="font-weight:900;">${escapeHtml(title)}</div>
+              <div style="font-weight:900; font-size:13px;">${escapeHtml(title)}</div>
               <div class="mini-muted">Enviada em: ${escapeHtml(sentAt)}</div>
               <div class="mini-muted">Nota: ${
                 score === null ? '— (não corrigida)' : `${escapeHtml(score)} / 1000`
@@ -406,7 +499,7 @@ export class PdfService {
               ${
                 score === null
                   ? `<div class="mini-muted">Sem gráfico (não corrigida).</div>`
-                  : donutSvgSegments({ c1, c2, c3, c4, c5, totalText: String(score), size: 110, hole: 36 })
+                  : donutSvgSegments({ c1, c2, c3, c4, c5, totalText: String(score), size: 120, hole: 38 })
               }
             </div>
           </div>
@@ -414,7 +507,7 @@ export class PdfService {
           ${
             e.content
               ? `<div class="essayBox"><strong>Redação</strong>\n\n${escapeHtml(e.content)}</div>`
-              : `<div class="essayBox"><strong>Redação</strong>\n\n<span style="color:#64748b;">Redação não disponível (o endpoint do PDF não está trazendo "content").</span></div>`
+              : `<div class="essayBox"><strong>Redação</strong>\n\n<span style="color:#64748b;">Redação não disponível (verifique se o endpoint do PDF está trazendo "content").</span></div>`
           }
         </div>`;
       })
@@ -431,27 +524,46 @@ export class PdfService {
       headless: chromium.headless,
     });
 
+    // Header/Footer (logo + paginação)
+    const safeRoomName = escapeHtml(roomName);
+    const safeStudentName = escapeHtml(studentName);
+
+    const headerTemplate = `
+      <div style="width:100%; padding:0 12mm; font-size:9px; color:#64748b; display:flex; align-items:center; justify-content:space-between;">
+        <div style="display:flex; align-items:center; gap:6px;">
+          ${
+            hasLogo
+              ? `<img src="${escapeHtml(logoSrc)}" style="height:14px; width:auto; vertical-align:middle;" />`
+              : ``
+          }
+          <span style="font-weight:700; color:#475569;">Mestre Kira</span>
+          <span>•</span>
+          <span>${safeRoomName}</span>
+        </div>
+        <div style="color:#64748b;">${safeStudentName}</div>
+      </div>
+    `;
+
+    const footerTemplate = `
+      <div style="width:100%; padding:0 12mm; font-size:9px; color:#64748b; display:flex; align-items:center; justify-content:space-between;">
+        <span>© 2026 Mestre Kira. Todos os direitos reservados.</span>
+        <span>Página <span class="pageNumber"></span> de <span class="totalPages"></span></span>
+      </div>
+    `;
+
     try {
       const page = await browser.newPage();
+
+      // Se a logo for URL externa, pode ser útil dar um tempinho pra carregar recursos
       await page.setContent(html, { waitUntil: 'networkidle0' });
 
       const pdf = await page.pdf({
         format: 'A4',
         printBackground: true,
-        margin: { top: '18mm', right: '12mm', bottom: '18mm', left: '12mm' },
+        margin: { top: '22mm', right: '12mm', bottom: '22mm', left: '12mm' },
         displayHeaderFooter: true,
-        headerTemplate: `
-          <div style="font-size:9px; width:100%; padding:0 12mm; color:#64748b; display:flex; justify-content:space-between;">
-            <span>Mestre Kira • ${escapeHtml(roomName)}</span>
-            <span>${escapeHtml(studentName)}</span>
-          </div>
-        `,
-        footerTemplate: `
-          <div style="font-size:9px; width:100%; padding:0 12mm; color:#64748b; display:flex; justify-content:space-between;">
-            <span>© 2026 Mestre Kira. Todos os direitos reservados.</span>
-            <span>Página <span class="pageNumber"></span> de <span class="totalPages"></span></span>
-          </div>
-        `,
+        headerTemplate,
+        footerTemplate,
       });
 
       return Buffer.from(pdf);
