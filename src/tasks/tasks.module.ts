@@ -14,5 +14,7 @@ import { EssayEntity } from '../essays/essay.entity';
   ],
   controllers: [TasksController],
   providers: [TasksService],
+  exports: [TasksService],
 })
 export class TasksModule {}
+
