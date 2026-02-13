@@ -35,7 +35,7 @@ function escapeHtml(s: any) {
 }
 
 function toDateSafe(value: any): Date | null {
-  if (!value) return null;
+  if (value === null || value === undefined || value === '') return null;
   const d = value instanceof Date ? value : new Date(value);
   return Number.isNaN(d.getTime()) ? null : d;
 }
@@ -44,7 +44,10 @@ function formatDateBR(value: any) {
   const d = toDateSafe(value);
   if (!d) return '—';
   try {
-    return new Intl.DateTimeFormat('pt-BR', { dateStyle: 'short', timeStyle: 'short' }).format(d);
+    return new Intl.DateTimeFormat('pt-BR', {
+      dateStyle: 'short',
+      timeStyle: 'short',
+    }).format(d);
   } catch {
     return '—';
   }
@@ -79,12 +82,12 @@ function donutSvg({ c1, c2, c3, c4, c5, totalText }: any) {
   };
 
   const segments = [
-    { value: c1, color: colors.c1 },
-    { value: c2, color: colors.c2 },
-    { value: c3, color: colors.c3 },
-    { value: c4, color: colors.c4 },
-    { value: c5, color: colors.c5 },
-    { value: gap, color: colors.gap },
+    { value: Number(c1) || 0, color: colors.c1 },
+    { value: Number(c2) || 0, color: colors.c2 },
+    { value: Number(c3) || 0, color: colors.c3 },
+    { value: Number(c4) || 0, color: colors.c4 },
+    { value: Number(c5) || 0, color: colors.c5 },
+    { value: Number(gap) || 0, color: colors.gap },
   ].filter((s) => s.value > 0);
 
   const size = 96;
@@ -93,7 +96,7 @@ function donutSvg({ c1, c2, c3, c4, c5, totalText }: any) {
   const cy = size / 2;
   const r = size / 2 - 2;
 
- const total = segments.reduce((acc, s) => acc + (Number(s.value) || 0), 0);
+  const total = segments.reduce((acc, s) => acc + (Number(s.value) || 0), 0);
   if (total <= 0) return '';
 
   function polarToCartesian(angleDeg: number) {
@@ -115,9 +118,11 @@ function donutSvg({ c1, c2, c3, c4, c5, totalText }: any) {
     const delta = portion * 360;
     const start = angle;
     const end = angle + delta;
+
     paths.push(
       `<path d="${arcPath(start, end)}" fill="${seg.color}" stroke="${colors.stroke}" stroke-width="1"></path>`,
     );
+
     angle += delta;
   }
 
@@ -148,12 +153,19 @@ export class PdfService {
     });
 
     const sorted = [...(Array.isArray(essays) ? essays : [])].sort((a, b) => {
-      const at = toDateSafe(a?.submittedAt || a?.createdAt || a?.updatedAt)?.getTime?.() ?? -Infinity;
-      const bt = toDateSafe(b?.submittedAt || b?.createdAt || b?.updatedAt)?.getTime?.() ?? -Infinity;
+      const at =
+        toDateSafe(a?.submittedAt || a?.createdAt || a?.updatedAt)?.getTime() ??
+        -Infinity;
+      const bt =
+        toDateSafe(b?.submittedAt || b?.createdAt || b?.updatedAt)?.getTime() ??
+        -Infinity;
       return bt - at;
     });
 
-    const corrected = sorted.filter((e) => e?.score !== null && e?.score !== undefined);
+    const corrected = sorted.filter(
+      (e) => e?.score !== null && e?.score !== undefined,
+    );
+
     const averages = {
       total: mean(corrected.map((e) => e.score)),
       c1: mean(corrected.map((e) => e.c1)),
@@ -167,9 +179,13 @@ export class PdfService {
 
     const summaryRows = sorted
       .map((e, i) => {
-        const title = e.taskTitle || tasksMap.get(String(e.taskId)) || `Tarefa ${i + 1}`;
+        const title =
+          e.taskTitle ||
+          tasksMap.get(String(e.taskId)) ||
+          `Tarefa ${i + 1}`;
         const sentAt = formatDateBR(e.submittedAt || e.createdAt || e.updatedAt);
-        const score = e.score === null || e.score === undefined ? '—' : `${e.score}`;
+        const score =
+          e.score === null || e.score === undefined ? '—' : `${e.score}`;
         return `<tr><td>${escapeHtml(title)}</td><td>${escapeHtml(sentAt)}</td><td style="text-align:right;">${escapeHtml(score)}</td></tr>`;
       })
       .join('');
@@ -209,7 +225,6 @@ export class PdfService {
 </head>
 <body>
 
-  <!-- CAPA -->
   <div class="page cover break">
     <div class="brand">Mestre Kira</div>
     <div class="subtitle">Relatório de desempenho (Redações + Gráficos)</div>
@@ -221,7 +236,6 @@ export class PdfService {
     </div>
   </div>
 
-  <!-- CONTEÚDO -->
   <div class="page">
     <h1>Desempenho do aluno</h1>
     <div class="sub">
@@ -295,7 +309,8 @@ export class PdfService {
         const c4 = clamp0to200(e.c4);
         const c5 = clamp0to200(e.c5);
 
-        const title = e.taskTitle || tasksMap.get(String(e.taskId)) || `Tarefa ${idx + 1}`;
+        const title =
+          e.taskTitle || tasksMap.get(String(e.taskId)) || `Tarefa ${idx + 1}`;
         const sentAt = formatDateBR(e.submittedAt || e.createdAt || e.updatedAt);
 
         return `
@@ -349,12 +364,5 @@ export class PdfService {
     } finally {
       await browser.close();
     }
-function toDateSafe(value: any): Date | null {
-  if (value === null || value === undefined || value === '') return null;
-  const d = value instanceof Date ? value : new Date(value);
-  return Number.isNaN(d.getTime()) ? null : d;
-}
-    
   }
 }
-
