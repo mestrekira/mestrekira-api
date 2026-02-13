@@ -328,5 +328,30 @@ export class EssaysService {
       createdAt: e.createdAt ?? null,
       updatedAt: e.updatedAt ?? null,
     }));
+
+    async findEssaysWithContentByRoomForStudent(roomId: string, studentId: string) {
+  return this.essayRepo.find({
+    where: {
+      roomId,
+      studentId,
+    } as any,
+    select: [
+      'id',
+      'taskId',
+      'score',
+      'c1',
+      'c2',
+      'c3',
+      'c4',
+      'c5',
+      'content',
+      'submittedAt',
+      'createdAt',
+      'updatedAt',
+    ] as any,
+    order: { updatedAt: 'DESC' } as any,
+  });
+}
   }
 }
+
