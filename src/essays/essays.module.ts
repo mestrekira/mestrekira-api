@@ -11,6 +11,8 @@ import { TaskEntity } from '../tasks/task.entity';
   controllers: [EssaysController],
   providers: [EssaysService],
   exports: [EssaysService],
+  
 })
 export class EssaysModule {}
+
 
