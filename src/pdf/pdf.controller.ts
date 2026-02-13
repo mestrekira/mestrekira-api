@@ -22,12 +22,6 @@ function mean(nums: Array<number | null | undefined>): number | null {
   return Math.round(v.reduce((a, b) => a + b, 0) / v.length);
 }
 
-function clamp0to200(n: any) {
-  const v = Number(n);
-  if (Number.isNaN(v)) return 0;
-  return Math.max(0, Math.min(200, v));
-}
-
 @Controller('pdf')
 @UseGuards(JwtAuthGuard)
 export class PdfController {
@@ -50,7 +44,7 @@ export class PdfController {
       throw new BadRequestException('roomId e studentId são obrigatórios.');
     }
 
-    // ✅ método real do seu EssaysService
+    // ✅ retorna somente dados da redação (sem join de aluno/sala)
     const essaysRaw = await this.essaysService.performanceByRoomForStudent(
       rid,
       sid,
@@ -58,7 +52,7 @@ export class PdfController {
 
     const essaysArr = Array.isArray(essaysRaw) ? essaysRaw : [];
 
-    // ✅ tasks da sala para mapear título no PDF
+    // ✅ tarefas da sala para mapear título
     const tasksRaw = await this.tasksService.byRoom(rid);
     const tasksArr = Array.isArray(tasksRaw) ? tasksRaw : [];
 
@@ -67,16 +61,21 @@ export class PdfController {
       if (t?.id) taskTitleMap.set(String(t.id), String(t.title || 'Tarefa'));
     });
 
-    // ✅ normaliza/“enriquece” as redações para o PDF
-    const essaysForPdf = essaysArr.map((e: any) => {
+    // ✅ títulos reais não vêm no payload -> fallback profissional
+    const studentName = `Aluno ${sid.slice(0, 6)}…`;
+    const roomName = `Sala ${rid.slice(0, 6)}…`;
+
+    // ✅ monta objeto pro PDF (incluindo content se existir)
+    const essaysForPdf = essaysArr.map((e: any, idx: number) => {
       const taskIdStr = String(e?.taskId || '').trim();
+      const taskTitle =
+        taskTitleMap.get(taskIdStr) ||
+        (taskIdStr ? `Tarefa ${taskIdStr.slice(0, 6)}…` : `Tarefa ${idx + 1}`);
+
       return {
         id: String(e?.id || ''),
         taskId: taskIdStr,
-        taskTitle:
-          String(e?.taskTitle || '').trim() ||
-          taskTitleMap.get(taskIdStr) ||
-          (taskIdStr ? `Tarefa ${taskIdStr.slice(0, 6)}…` : 'Tarefa'),
+        taskTitle,
 
         score: e?.score ?? null,
         c1: e?.c1 ?? null,
@@ -85,53 +84,34 @@ export class PdfController {
         c4: e?.c4 ?? null,
         c5: e?.c5 ?? null,
 
-        // ✅ inclui a redação (você disse que NÃO precisa do feedback agora)
+        // ✅ se o seu endpoint não traz content, fica null e o PDF só mostra gráficos
         content: e?.content ?? null,
 
-        // Mantém campos de data caso existam (não atrapalha)
-        submittedAt: e?.submittedAt ?? e?.submitted_at ?? null,
-        createdAt: e?.createdAt ?? e?.created_at ?? null,
-        updatedAt: e?.updatedAt ?? e?.updated_at ?? null,
+        submittedAt: e?.submittedAt ?? null,
+        createdAt: e?.createdAt ?? null,
+        updatedAt: e?.updatedAt ?? null,
       };
     });
 
-    // ✅ médias apenas das corrigidas (igual seu front)
+    // ✅ médias apenas corrigidas
     const corrected = essaysForPdf.filter(
-      (e: any) => e?.score !== null && e?.score !== undefined,
+      (e) => e.score !== null && e.score !== undefined,
     );
 
     const averages = {
-      total: mean(corrected.map((e: any) => e.score)),
-      c1: mean(corrected.map((e: any) => e.c1)),
-      c2: mean(corrected.map((e: any) => e.c2)),
-      c3: mean(corrected.map((e: any) => e.c3)),
-      c4: mean(corrected.map((e: any) => e.c4)),
-      c5: mean(corrected.map((e: any) => e.c5)),
+      total: mean(corrected.map((e) => e.score)),
+      c1: mean(corrected.map((e) => e.c1)),
+      c2: mean(corrected.map((e) => e.c2)),
+      c3: mean(corrected.map((e) => e.c3)),
+      c4: mean(corrected.map((e) => e.c4)),
+      c5: mean(corrected.map((e) => e.c5)),
     };
 
-    // ✅ nomes (tentamos pegar do payload; se não vier, usa fallback bonito)
-    const studentName =
-      String(essaysArr?.[0]?.studentName || essaysArr?.[0]?.student?.name || '')
-        .trim() || `Aluno ${sid.slice(0, 6)}…`;
-
-    // Se seu back não retorna roomName, fica um fallback consistente
-    const roomName =
-      String(essaysArr?.[0]?.roomName || essaysArr?.[0]?.room?.name || '')
-        .trim() || `Sala ${rid.slice(0, 6)}…`;
-
-    // ✅ CHAMA O MÉTODO QUE EXISTE NO SEU PdfService (pdf.service.ts)
-    const pdfBuffer = await this.pdfService.performancePdf({
+    // ✅ chama o gerador final do PDF
+    const pdfBuffer = await this.pdfService.generateStudentPerformancePdf({
       studentName,
       roomName,
-      essays: essaysForPdf.map((e: any) => ({
-        ...e,
-        // garante números “seguros” para o gráfico
-        c1: e.c1 === null ? null : clamp0to200(e.c1),
-        c2: e.c2 === null ? null : clamp0to200(e.c2),
-        c3: e.c3 === null ? null : clamp0to200(e.c3),
-        c4: e.c4 === null ? null : clamp0to200(e.c4),
-        c5: e.c5 === null ? null : clamp0to200(e.c5),
-      })),
+      essays: essaysForPdf,
       averages,
     });
 
