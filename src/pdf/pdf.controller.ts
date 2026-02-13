@@ -35,12 +35,11 @@ export class PdfController {
       throw new BadRequestException('roomId e studentId são obrigatórios.');
     }
 
-    // ✅ endpoint real do seu EssaysService
-    const essaysRaw = await this.essaysService.performanceByRoomForStudent(
+    // ✅ AQUI: buscar redações completas (incluindo content)
+    const essaysArr = await this.essaysService.findEssaysWithContentByRoomForStudent(
       rid,
       sid,
     );
-    const essaysArr = Array.isArray(essaysRaw) ? essaysRaw : [];
 
     // ✅ wrapper real do TasksService
     const tasksRaw = await this.tasksService.byRoom(rid);
@@ -50,11 +49,10 @@ export class PdfController {
     const studentName = `Aluno ${sid.slice(0, 6)}…`;
     const roomName = `Sala ${rid.slice(0, 6)}…`;
 
-    // ✅ chama o PdfService com o shape EXATO esperado no seu tipo atual
     const pdfBuffer = await this.pdfService.generateStudentPerformancePdf({
       studentName,
       roomName,
-      essays: essaysArr as any, // mantém compatível mesmo se o retorno não tipar igual ao PDF
+      essays: essaysArr as any,
       tasks: tasksArr as any,
     });
 
