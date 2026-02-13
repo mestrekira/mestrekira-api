@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
-import puppeteer from 'puppeteer';
+import puppeteer from 'puppeteer-core';
+import chromium from '@sparticuz/chromium';
 
 type Essay = {
   id: string;
@@ -345,11 +346,13 @@ export class PdfService {
 </html>
 `;
 
-    const browser = await puppeteer.launch({
-      headless: true,
-      args: ['--no-sandbox', '--disable-setuid-sandbox'],
-    });
-
+  const browser = await puppeteer.launch({
+  args: chromium.args,
+  defaultViewport: chromium.defaultViewport,
+  executablePath: await chromium.executablePath(),
+  headless: chromium.headless,
+});
+    
     try {
       const page = await browser.newPage();
       await page.setContent(html, { waitUntil: 'networkidle0' });
@@ -366,3 +369,4 @@ export class PdfService {
     }
   }
 }
+
