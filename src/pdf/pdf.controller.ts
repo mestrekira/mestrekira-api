@@ -35,11 +35,8 @@ export class PdfController {
       throw new BadRequestException('roomId e studentId são obrigatórios.');
     }
 
-    // ✅ AQUI: buscar redações completas (incluindo content)
-    const essaysArr = await this.essaysService.findEssaysWithContentByRoomForStudent(
-      rid,
-      sid,
-    );
+   // ✅ pega redações completas (com content)
+   const essaysArr = await this.essaysService.findEssaysWithContentByRoomForStudent(rid, sid);
 
     // ✅ wrapper real do TasksService
     const tasksRaw = await this.tasksService.byRoom(rid);
