@@ -54,14 +54,31 @@ function mean(nums: Array<number | null | undefined>) {
   return Math.round(v.reduce((a, b) => a + b, 0) / v.length);
 }
 
-// donut colorido
-function donutSvg({ c1, c2, c3, c4, c5, totalText }: any) {
+// Donut colorido segmentado
+function donutSvg({
+  c1,
+  c2,
+  c3,
+  c4,
+  c5,
+  totalText,
+  size = 120,
+  hole = 38,
+}: {
+  c1: number;
+  c2: number;
+  c3: number;
+  c4: number;
+  c5: number;
+  totalText: string;
+  size?: number;
+  hole?: number;
+}) {
   const colors = ['#4f46e5', '#16a34a', '#f59e0b', '#0ea5e9', '#ef4444'];
   const values = [c1, c2, c3, c4, c5].map((n) => Number(n) || 0);
   const total = values.reduce((a, b) => a + b, 0);
   if (!total) return '';
 
-  const size = 110;
   const r = size / 2 - 4;
   const cx = size / 2;
   const cy = size / 2;
@@ -90,9 +107,9 @@ function donutSvg({ c1, c2, c3, c4, c5, totalText }: any) {
   });
 
   return `
-  <svg width="${size}" height="${size}">
+  <svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">
     ${segments.join('\n')}
-    <circle cx="${cx}" cy="${cy}" r="35" fill="#fff"/>
+    <circle cx="${cx}" cy="${cy}" r="${hole}" fill="#fff"/>
     <text x="${cx}" y="${cy + 6}" text-anchor="middle" font-size="16" font-weight="900" fill="#0f172a">
       ${escapeHtml(totalText)}
     </text>
@@ -113,23 +130,24 @@ export class PdfService {
     const safeStudent = escapeHtml(studentName);
     const safeRoom = escapeHtml(roomName);
 
-    // ✅ Logo local em Base64
+    // ✅ Logo local (assets/logo1.png) em Base64
     let logoDataUrl = '';
     try {
       const logoPath = path.join(process.cwd(), 'assets', 'logo1.png');
       const logoBase64 = fs.readFileSync(logoPath, 'base64');
       logoDataUrl = `data:image/png;base64,${logoBase64}`;
     } catch {
-      console.warn('[PDF] logo1.png não encontrada em assets/');
+      // sem logo local; não quebra PDF
+      console.warn('[PDF] assets/logo1.png não encontrada.');
     }
 
-    const tasksMap = new Map(tasks.map((t) => [t.id, t.title]));
+    const tasksMap = new Map((tasks || []).map((t) => [t.id, t.title]));
 
-    const sorted = [...(essays || [])].sort(
-      (a, b) =>
-        new Date(b.createdAt ?? 0).getTime() -
-        new Date(a.createdAt ?? 0).getTime(),
-    );
+    const sorted = [...(essays || [])].sort((a, b) => {
+      const ta = new Date(a.createdAt ?? a.updatedAt ?? 0).getTime();
+      const tb = new Date(b.createdAt ?? b.updatedAt ?? 0).getTime();
+      return tb - ta;
+    });
 
     const corrected = sorted.filter((e) => e.score != null);
 
@@ -145,83 +163,137 @@ export class PdfService {
     const summaryRows = sorted
       .map((e) => {
         const title = e.taskTitle || tasksMap.get(e.taskId) || 'Tarefa';
+        const dt = formatDateBR(e.createdAt ?? e.updatedAt);
+        const score = e.score ?? '—';
         return `
-        <tr>
-          <td>${escapeHtml(title)}</td>
-          <td>${formatDateBR(e.createdAt)}</td>
-          <td style="text-align:right;">${e.score ?? '—'}</td>
-        </tr>`;
+          <tr>
+            <td>${escapeHtml(title)}</td>
+            <td>${escapeHtml(dt)}</td>
+            <td style="text-align:right;">${escapeHtml(score)}</td>
+          </tr>
+        `;
       })
       .join('');
 
     const details = sorted
-      .map((e) => {
-        const title = e.taskTitle || tasksMap.get(e.taskId) || 'Tarefa';
+      .map((e, idx) => {
+        const title =
+          e.taskTitle || tasksMap.get(e.taskId) || `Tarefa ${idx + 1}`;
         const score = e.score ?? null;
 
-        return `
-        <div class="card task">
-          <div class="task-header">
-            <div>
-              <div class="task-title">${escapeHtml(title)}</div>
-              <div class="muted">Enviada em: ${formatDateBR(e.createdAt)}</div>
-              <div class="muted">Nota: ${
-                score == null ? '—' : score + ' / 1000'
-              }</div>
-            </div>
-            ${
-              score != null
-                ? donutSvg({
-                    c1: clamp0to200(e.c1),
-                    c2: clamp0to200(e.c2),
-                    c3: clamp0to200(e.c3),
-                    c4: clamp0to200(e.c4),
-                    c5: clamp0to200(e.c5),
-                    totalText: String(score),
-                  })
-                : ''
-            }
-          </div>
+        const c1 = clamp0to200(e.c1);
+        const c2 = clamp0to200(e.c2);
+        const c3 = clamp0to200(e.c3);
+        const c4 = clamp0to200(e.c4);
+        const c5 = clamp0to200(e.c5);
 
-          <div class="essayBox">
-            <strong>Redação</strong><br/><br/>
-            ${escapeHtml(e.content || 'Redação não disponível.')}
+        return `
+          <div class="card task">
+            <div class="taskGrid">
+              <div class="taskInfo">
+                <div class="task-title">${escapeHtml(title)}</div>
+                <div class="muted">Enviada em: ${escapeHtml(
+                  formatDateBR(e.createdAt ?? e.updatedAt),
+                )}</div>
+                <div class="muted">Nota: ${
+                  score == null ? '— (não corrigida)' : `${escapeHtml(score)} / 1000`
+                }</div>
+              </div>
+
+              <div class="taskChart">
+                ${
+                  score != null
+                    ? donutSvg({
+                        c1,
+                        c2,
+                        c3,
+                        c4,
+                        c5,
+                        totalText: String(score),
+                        size: 120,
+                        hole: 38,
+                      })
+                    : `<div class="muted">—</div>`
+                }
+              </div>
+            </div>
+
+            <div class="essayBox">
+              <strong>Redação</strong><br/><br/>
+              ${escapeHtml(e.content || 'Redação não disponível.')}
+            </div>
           </div>
-        </div>`;
+        `;
       })
       .join('');
 
     const html = `
 <!DOCTYPE html>
-<html>
+<html lang="pt-BR">
 <head>
 <meta charset="utf-8"/>
 <style>
-  body { font-family: Arial, sans-serif; color:#0f172a; }
+  :root{
+    --ink:#0f172a; --muted:#64748b; --line:#e5e7eb; --soft:#f8fafc;
+  }
+  body { font-family: Arial, sans-serif; color:var(--ink); margin:0; }
   .page { padding: 20px; }
   .cover { display:flex; flex-direction:column; justify-content:center; height:90vh; }
   .brand { display:flex; align-items:center; gap:12px; }
-  .logo { height:50px; }
+  .logo { height:50px; width:auto; }
   .title { font-size:26px; font-weight:900; }
-  .card { border:1px solid #e5e7eb; border-radius:14px; padding:14px; margin-bottom:12px; }
-  .task-header { display:flex; justify-content:space-between; gap:12px; }
-  .task-title { font-weight:900; }
-  .muted { font-size:12px; color:#64748b; }
+  .card { border:1px solid var(--line); border-radius:14px; padding:14px; margin-bottom:12px; }
+  .muted { font-size:12px; color:var(--muted); }
+
   table { width:100%; border-collapse:collapse; margin-top:10px; }
-  th,td { padding:8px; border-bottom:1px solid #e5e7eb; font-size:12px; }
+  th,td { padding:8px; border-bottom:1px solid var(--line); font-size:12px; vertical-align:top; }
+  th { text-align:left; background: var(--soft); color: var(--muted); }
+
+  /* ✅ layout FIXO do gráfico: coluna da direita fixa */
+  .taskGrid {
+    display:grid;
+    grid-template-columns: 1fr 140px;
+    gap: 12px;
+    align-items: start;
+  }
+  .taskInfo { min-width: 0; } /* permite quebra de linha sem empurrar o gráfico */
+  .taskChart {
+    width: 140px;
+    display:flex;
+    justify-content:center;
+    align-items:flex-start;
+  }
+  .task-title { font-weight:900; font-size:13px; margin-bottom:2px; }
+
   .essayBox {
     margin-top:10px;
     padding:14px;
-    border:1px solid #e5e7eb;
+    border:1px solid var(--line);
     border-radius:12px;
-    background:#f8fafc;
+    background:var(--soft);
     white-space:pre-wrap;
     line-height:1.7;
     text-align:justify;
+
+    /* ✅ impede estouro por strings longas */
     overflow-wrap:anywhere;
     word-break:break-word;
     hyphens:auto;
   }
+
+  .kpiRow{
+    display:flex; gap:8px; flex-wrap:wrap; margin-top:10px;
+  }
+  .kpi{
+    border:1px solid var(--line);
+    border-radius:999px;
+    padding:6px 10px;
+    font-size:12px;
+    background:#fff;
+    color: var(--muted);
+  }
+  .kpi b{ color: var(--ink); }
+
   @page { size:A4; margin:20mm 12mm; }
 </style>
 </head>
@@ -229,17 +301,13 @@ export class PdfService {
 
 <div class="page cover">
   <div class="brand">
-    ${
-      logoDataUrl
-        ? `<img src="${logoDataUrl}" class="logo"/>`
-        : ''
-    }
+    ${logoDataUrl ? `<img src="${logoDataUrl}" class="logo" alt="Mestre Kira"/>` : ``}
     <div class="title">Mestre Kira</div>
   </div>
-  <p>Relatório de desempenho</p>
-  <p><strong>Aluno:</strong> ${safeStudent}</p>
+  <p class="muted">Relatório de desempenho</p>
+  <p><strong>Estudante:</strong> ${safeStudent}</p>
   <p><strong>Sala:</strong> ${safeRoom}</p>
-  <p><strong>Gerado em:</strong> ${formatDateBR(new Date())}</p>
+  <p><strong>Gerado em:</strong> ${escapeHtml(formatDateBR(new Date()))}</p>
 </div>
 
 <div class="page">
@@ -255,19 +323,29 @@ export class PdfService {
             c4: averages.c4 ?? 0,
             c5: averages.c5 ?? 0,
             totalText: String(averages.total),
+            size: 120,
+            hole: 38,
           })
-        : '<p>Sem correções ainda.</p>'
+        : `<div class="muted">Sem correções ainda.</div>`
     }
+
+    <div class="kpiRow">
+      <span class="kpi"><b>C1</b>: ${averages.c1 ?? '—'}</span>
+      <span class="kpi"><b>C2</b>: ${averages.c2 ?? '—'}</span>
+      <span class="kpi"><b>C3</b>: ${averages.c3 ?? '—'}</span>
+      <span class="kpi"><b>C4</b>: ${averages.c4 ?? '—'}</span>
+      <span class="kpi"><b>C5</b>: ${averages.c5 ?? '—'}</span>
+    </div>
   </div>
 
   <div class="card">
     <h3>Sumário</h3>
     <table>
       <thead>
-        <tr><th>Tarefa</th><th>Data</th><th>Nota</th></tr>
+        <tr><th>Tarefa</th><th>Data</th><th style="text-align:right;">Nota</th></tr>
       </thead>
       <tbody>
-        ${summaryRows}
+        ${summaryRows || `<tr><td colspan="3">Nenhuma redação encontrada.</td></tr>`}
       </tbody>
     </table>
   </div>
@@ -298,14 +376,12 @@ export class PdfService {
         headerTemplate: `
           <div style="font-size:9px; width:100%; padding:0 12mm; display:flex; justify-content:space-between; align-items:center;">
             <div style="display:flex; align-items:center; gap:6px;">
-              ${
-                logoDataUrl
-                  ? `<img src="${logoDataUrl}" style="height:14px;"/>`
-                  : ''
-              }
+              ${logoDataUrl ? `<img src="${logoDataUrl}" style="height:14px; width:auto;" />` : ``}
               <span style="color:#475569; font-weight:700;">Mestre Kira</span>
+              <span style="color:#94a3b8;">•</span>
+              <span style="color:#64748b;">${safeRoom}</span>
             </div>
-            <span style="color:#64748b;">${safeStudent}</span>
+            <span style="color:#64748b;">Estudante: ${safeStudent}</span>
           </div>
         `,
         footerTemplate: `
@@ -316,7 +392,7 @@ export class PdfService {
             </span>
           </div>
         `,
-        margin: { top: '25mm', bottom: '20mm' },
+        margin: { top: '25mm', bottom: '20mm', left: '12mm', right: '12mm' },
       });
 
       return Buffer.from(pdf);
