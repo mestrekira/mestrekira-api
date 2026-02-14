@@ -14,12 +14,10 @@ import { UserEntity } from '../users/user.entity';
 @Module({
   imports: [
     EssaysModule,
-    RoomsModule,
+    RoomsModule, 
     TasksModule,
     UsersModule,
-
-    // ✅ necessário para usar @InjectRepository(UserEntity)
-    TypeOrmModule.forFeature([UserEntity]),
+    TypeOrmModule.forFeature([UserEntity]), 
   ],
   controllers: [PdfController],
   providers: [PdfService],
