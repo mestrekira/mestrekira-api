@@ -1,0 +1,152 @@
+classDiagram
+direction TB
+
+namespace Domain {
+  class UserEntity {
+    +uuid id
+    +string name
+    +string email
+    +string password
+    +string role
+    +boolean emailOptOut
+    +boolean emailVerified
+    +Date emailVerifiedAt
+    +string emailVerifyTokenHash
+    +Date emailVerifyTokenExpiresAt
+    +string passwordResetTokenHash
+    +Date passwordResetTokenExpiresAt
+    +Date inactivityWarnedAt
+    +Date scheduledDeletionAt
+    +Date createdAt
+    +Date updatedAt
+  }
+
+  class RoomEntity {
+    +uuid id
+    +string name
+    +string code
+    +uuid professorId
+    +Date createdAt
+    +Date updatedAt
+  }
+
+  class EnrollmentEntity {
+    +uuid id
+    +uuid roomId
+    +uuid studentId
+    +Date createdAt
+    +Date updatedAt
+  }
+
+  class TaskEntity {
+    +uuid id
+    +uuid roomId
+    +string title
+    +text guidelines
+    +Date createdAt
+    +Date updatedAt
+  }
+
+  class EssayEntity {
+    +uuid id
+    +uuid taskId
+    +uuid studentId
+    +boolean isDraft
+    +text content
+    +text feedback
+    +int c1
+    +int c2
+    +int c3
+    +int c4
+    +int c5
+    +int score
+    +Date submittedAt
+    +Date createdAt
+    +Date updatedAt
+  }
+}
+
+namespace Application {
+  class AuthController
+  class AuthService
+  class MailService
+  class UsersService
+
+  class RoomsService
+  class EnrollmentsService
+  class TasksService
+  class EssaysService
+  class AnalyticsService
+
+  class PdfController
+  class PdfService
+
+  class JwtStrategy
+  class JwtAuthGuard
+}
+
+namespace Modules {
+  class AppModule
+  class AuthModule
+  class UsersModule
+  class MailModule
+  class RoomsModule
+  class EnrollmentsModule
+  class TasksModule
+  class EssaysModule
+  class AnalyticsModule
+  class PdfModule
+  class CleanupModule
+}
+
+%% ========================
+%% Domain relationships
+%% ========================
+Domain.UserEntity "1" --> "0..*" Domain.RoomEntity : professorId
+Domain.RoomEntity "1" --> "0..*" Domain.EnrollmentEntity : roomId
+Domain.UserEntity "1" --> "0..*" Domain.EnrollmentEntity : studentId
+Domain.RoomEntity "1" --> "0..*" Domain.TaskEntity : roomId
+Domain.TaskEntity "1" --> "0..*" Domain.EssayEntity : taskId
+Domain.UserEntity "1" --> "0..*" Domain.EssayEntity : studentId
+
+%% ========================
+%% Application relationships
+%% ========================
+Application.AuthController --> Application.AuthService
+Application.AuthService --> Application.UsersService
+Application.AuthService --> Application.MailService
+
+Application.PdfController --> Application.PdfService
+Application.PdfController --> Application.EssaysService
+Application.PdfController --> Application.TasksService
+Application.PdfController --> Application.JwtAuthGuard
+Application.JwtAuthGuard --> Application.JwtStrategy
+
+%% ========================
+%% Module composition
+%% ========================
+Modules.AppModule --> Modules.AuthModule
+Modules.AppModule --> Modules.UsersModule
+Modules.AppModule --> Modules.MailModule
+Modules.AppModule --> Modules.RoomsModule
+Modules.AppModule --> Modules.EnrollmentsModule
+Modules.AppModule --> Modules.TasksModule
+Modules.AppModule --> Modules.EssaysModule
+Modules.AppModule --> Modules.AnalyticsModule
+Modules.AppModule --> Modules.PdfModule
+Modules.AppModule --> Modules.CleanupModule
+
+Modules.AuthModule --> Modules.UsersModule : forwardRef
+Modules.AuthModule --> Modules.MailModule
+Modules.PdfModule --> Modules.EssaysModule
+Modules.PdfModule --> Modules.TasksModule
+Modules.PdfModule --> Modules.AuthModule : usa JwtAuthGuard
+
+%% ========================
+%% Data access hint
+%% ========================
+Application.UsersService --> Domain.UserEntity : TypeORM Repo
+Application.RoomsService --> Domain.RoomEntity : TypeORM Repo
+Application.EnrollmentsService --> Domain.EnrollmentEntity : TypeORM Repo
+Application.TasksService --> Domain.TaskEntity : TypeORM Repo
+Application.EssaysService --> Domain.EssayEntity : TypeORM Repo
