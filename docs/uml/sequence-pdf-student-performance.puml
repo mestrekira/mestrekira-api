@@ -1,0 +1,47 @@
+@startuml
+skinparam shadowing true
+skinparam linetype ortho
+skinparam BackgroundColor white
+skinparam DefaultFontName Arial
+skinparam DefaultFontSize 14
+autonumber
+
+title Fluxo: Download PDF de desempenho (Aluno)
+
+actor "Aluno (Browser)" as B
+participant "Frontend desempenho.js" as FE
+participant "API PdfController" as C
+participant "JwtAuthGuard" as G
+participant "JwtStrategy" as S
+participant "EssaysService" as ES
+participant "TasksService" as TS
+participant "PdfService (Puppeteer)" as PS
+
+B -> FE : clique "Baixar desempenho (PDF)"
+FE -> FE : lê token localStorage\nmonta URL /pdf/student-performance?roomId&studentId
+FE -> C : GET /pdf/student-performance\nAuthorization: Bearer <token>
+
+C -> G : canActivate()
+G -> S : validate(token payload)
+S --> G : { id, role, email }
+G --> C : autorizado
+
+C -> ES : findEssaysWithContentByRoomForStudent(roomId, studentId)
+ES --> C : essays[]
+
+C -> TS : byRoom(roomId)
+TS --> C : tasks[]
+
+C -> PS : generateStudentPerformancePdf({studentName, roomName, essays, tasks})
+PS -> PS : monta HTML (resumo + donuts + redações)\npuppeteer.launch()\npage.setContent()\npage.pdf()
+PS --> C : Buffer(PDF)
+
+C --> FE : 200 application/pdf\nContent-Disposition: attachment
+FE -> B : força download (Blob + link)
+
+alt token ausente/inválido
+  C --> FE : 401 Unauthorized
+  FE -> B : redireciona login-aluno.html
+end
+
+@enduml

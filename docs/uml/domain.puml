@@ -1,0 +1,99 @@
+@startuml
+' ===== Visual profissional =====
+skinparam shadowing true
+skinparam packageStyle rectangle
+skinparam classAttributeIconSize 0
+skinparam linetype ortho
+skinparam BackgroundColor white
+skinparam DefaultFontName Arial
+skinparam DefaultFontSize 14
+left to right direction
+
+title Plataforma de Redação Mestre Kira - Modelo de Domínio (Entidades)
+
+package "Domain (TypeORM Entities)" {
+
+  class UserEntity <<entity>> {
+    +id: uuid
+    +name: string
+    +email: string
+    +password: string
+    +role: "student" | "professor"
+    --
+    +emailOptOut: boolean
+    +emailVerified: boolean
+    +emailVerifiedAt: timestamptz?
+    +emailVerifyTokenHash: text?
+    +emailVerifyTokenExpiresAt: timestamptz?
+    --
+    +passwordResetTokenHash: text?
+    +passwordResetTokenExpiresAt: timestamptz?
+    --
+    +inactivityWarnedAt: timestamptz?
+    +scheduledDeletionAt: timestamptz?
+    --
+    +createdAt: timestamptz
+    +updatedAt: timestamptz
+  }
+
+  class RoomEntity <<entity>> {
+    +id: uuid
+    +name: string
+    +code: string
+    +professorId: uuid
+    +createdAt: timestamptz
+    +updatedAt: timestamptz
+  }
+
+  class EnrollmentEntity <<entity>> {
+    +id: uuid
+    +roomId: uuid
+    +studentId: uuid
+    +createdAt: timestamptz
+  }
+
+  class TaskEntity <<entity>> {
+    +id: uuid
+    +roomId: uuid
+    +title: string
+    +guidelines: text?
+    +createdAt: timestamptz
+    +updatedAt: timestamptz
+  }
+
+  class EssayEntity <<entity>> {
+    +id: uuid
+    +taskId: uuid
+    +studentId: uuid
+    +content: text
+    +isDraft: boolean
+    --
+    +score: int?  (0..1000)
+    +c1: int? (0..200)
+    +c2: int? (0..200)
+    +c3: int? (0..200)
+    +c4: int? (0..200)
+    +c5: int? (0..200)
+    +feedback: text?
+    --
+    +submittedAt: timestamptz?
+    +createdAt: timestamptz
+    +updatedAt: timestamptz
+  }
+}
+
+' ===== Relacionamentos (conceituais) =====
+UserEntity "1" --> "0..*" RoomEntity : professorId
+UserEntity "1" --> "0..*" EnrollmentEntity : studentId
+RoomEntity "1" --> "0..*" EnrollmentEntity : roomId
+
+RoomEntity "1" --> "0..*" TaskEntity : roomId
+TaskEntity "1" --> "0..*" EssayEntity : taskId
+UserEntity "1" --> "0..*" EssayEntity : studentId
+
+note right of EssayEntity
+  Score e competências seguem o modelo ENEM:
+  C1..C5 (0..200) e total (0..1000)
+end note
+
+@enduml

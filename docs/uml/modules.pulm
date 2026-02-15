@@ -1,0 +1,93 @@
+@startuml
+skinparam shadowing true
+skinparam packageStyle rectangle
+skinparam classAttributeIconSize 0
+skinparam linetype ortho
+skinparam BackgroundColor white
+skinparam DefaultFontName Arial
+skinparam DefaultFontSize 14
+top to bottom direction
+
+title Plataforma de Redação Mestre Kira - NestJS Modules
+
+package "NestJS AppModule" {
+  [AppModule] as App
+}
+
+package "Auth" {
+  [AuthModule]
+  [AuthController]
+  [AuthService]
+  [JwtStrategy]
+  [JwtAuthGuard]
+}
+
+package "Users" {
+  [UsersModule]
+  [UsersService]
+  [UsersController]
+}
+
+package "Rooms" {
+  [RoomsModule]
+  [RoomsService]
+  [RoomsController]
+}
+
+package "Enrollments" {
+  [EnrollmentsModule]
+  [EnrollmentsService]
+  [EnrollmentsController]
+}
+
+package "Tasks" {
+  [TasksModule]
+  [TasksService]
+  [TasksController]
+}
+
+package "Essays" {
+  [EssaysModule]
+  [EssaysService]
+  [EssaysController]
+}
+
+package "Mail" {
+  [MailModule]
+  [MailService]
+}
+
+package "PDF" {
+  [PdfModule]
+  [PdfController]
+  [PdfService]
+}
+
+package "Analytics/Cleanup" {
+  [AnalyticsModule]
+  [CleanupModule]
+}
+
+App --> AuthModule
+App --> UsersModule
+App --> RoomsModule
+App --> EnrollmentsModule
+App --> TasksModule
+App --> EssaysModule
+App --> MailModule
+App --> PdfModule
+App --> AnalyticsModule
+App --> CleanupModule
+
+AuthModule --> UsersModule : forwardRef()
+AuthService --> UsersService
+AuthService --> MailService
+AuthService --> [JwtModule]
+
+PdfController --> PdfService
+PdfController --> EssaysService
+PdfController --> TasksService
+
+JwtAuthGuard --> JwtStrategy
+
+@enduml

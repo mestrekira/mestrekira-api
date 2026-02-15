@@ -1,0 +1,61 @@
+@startuml
+skinparam shadowing true
+skinparam packageStyle rectangle
+skinparam linetype ortho
+skinparam BackgroundColor white
+skinparam DefaultFontName Arial
+skinparam DefaultFontSize 14
+left to right direction
+
+title Plataforma de Redação Mestre Kira - Arquitetura (Componentes)
+
+actor "Professor" as Prof
+actor "Estudante" as Stud
+
+rectangle "Frontend (Site estático)\nHTML/CSS/JS" as FE {
+  [Login Professor]
+  [Login Aluno]
+  [Painel Professor]
+  [Editor de Redação]
+  [Correção (Professor)]
+  [Desempenho (Aluno)]
+  [Suporte (FAQ)]
+}
+
+rectangle "API NestJS (Render)\nREST" as API {
+  [AuthController]
+  [UsersController]
+  [RoomsController]
+  [TasksController]
+  [EnrollmentsController]
+  [EssaysController]
+  [PdfController]
+}
+
+database "DB\n(Postgres Render)\n+ SQLite local" as DB
+
+cloud "Resend\n(E-mail)" as Resend
+
+component "Puppeteer\n(Chromium)" as Pupp
+
+Prof --> FE
+Stud --> FE
+
+FE --> API : HTTPS (fetch)\nBearer JWT (token)
+API --> DB : TypeORM
+API --> Resend : envio e-mail\n(verificação/reset)
+API --> Pupp : gerar PDF\n(student-performance)
+
+note right of FE
+  Frontend usa localStorage:
+  - token
+  - user
+  - studentId/professorId (compat)
+end note
+
+note bottom of API
+  Endpoints sensíveis protegidos por JwtAuthGuard
+  /pdf/* exige Authorization: Bearer <token>
+end note
+
+@enduml
