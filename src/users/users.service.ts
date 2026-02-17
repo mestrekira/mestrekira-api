@@ -279,4 +279,21 @@ export class UsersService {
 
     return { ok: true };
   }
+
+  async removeUserWithPassword(id: string, password: string) {
+  const user = await this.userRepo.findOne({ where: { id } });
+  if (!user) throw new NotFoundException('Usuário não encontrado');
+
+  const stored = String(user.password || '');
+  const incoming = String(password || '');
+
+  const ok = isBcryptHash(stored)
+    ? await bcrypt.compare(incoming, stored)
+    : stored === incoming;
+
+  if (!ok) throw new BadRequestException('Senha inválida para confirmar exclusão.');
+
+  return this.removeUser(id);
 }
+}
+
