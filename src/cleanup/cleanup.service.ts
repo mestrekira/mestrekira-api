@@ -30,6 +30,10 @@ type CleanupCandidate = {
   reason: 'warn_window' | 'delete_due';
 };
 
+function normEmail(v: any) {
+  return String(v || '').trim().toLowerCase();
+}
+
 @Injectable()
 export class CleanupService {
   constructor(
@@ -64,7 +68,7 @@ export class CleanupService {
       professor_last AS (
         SELECT r."professorId"::text AS user_id, MAX(t."createdAt") AS last_activity
         FROM room_entity r
-        JOIN task_entity t ON t."roomId"::text = r.id::text
+        LEFT JOIN task_entity t ON t."roomId"::text = r.id::text
         GROUP BY r."professorId"
       ),
       last_activity AS (
@@ -96,11 +100,21 @@ export class CleanupService {
     const warnCandidates: CleanupCandidate[] = [];
     const deleteCandidates: CleanupCandidate[] = [];
 
+    const adminEmail = normEmail(process.env.ADMIN_EMAIL || '');
+    const adminRecoveryEmail = normEmail(process.env.ADMIN_RECOVERY_EMAIL || '');
+
     for (const u of rows) {
-      // ✅ Respeita opt-out (não entra em listas, pois admin não deve enviar)
+      // ✅ Respeita opt-out
       if (u.emailOptOut) continue;
 
-      const last = u.last_activity ?? (u.createdAt ?? (await this.getUserCreatedAt(u.id)));
+      // ✅ paranoia: não operar em email do admin (se algum dia aparecer na tabela)
+      const em = normEmail(u.email);
+      if (adminEmail && em === adminEmail) continue;
+      if (adminRecoveryEmail && em === adminRecoveryEmail) continue;
+
+      const last =
+        u.last_activity ?? (u.createdAt ?? (await this.getUserCreatedAt(u.id)));
+
       const warnAt = this.addDays(last, warnThresholdDays);
       const deleteAtDefault = this.addDays(last, days);
 
@@ -120,15 +134,13 @@ export class CleanupService {
         emailOptOut: !!u.emailOptOut,
       };
 
-      // ✅ janela de AVISO: now >= warnAt e now < deleteAt
-      // E ainda NÃO avisou
+      // ✅ janela de AVISO: now >= warnAt e now < deleteAt e ainda NÃO avisou
       if (!u.inactivityWarnedAt && now >= warnAt && now < deleteAt) {
         warnCandidates.push({ ...base, reason: 'warn_window' });
         continue;
       }
 
       // ✅ EXCLUSÃO: now >= deleteAt
-      // (independente de ter avisado ou não; decisão será do admin)
       if (now >= deleteAt) {
         deleteCandidates.push({ ...base, reason: 'delete_due' });
       }
@@ -149,8 +161,7 @@ export class CleanupService {
   }
 
   /**
-   * ✅ Marcar usuário: define schedule e (opcional) warnedAt
-   * Use isso se você quiser marcar manualmente via admin.
+   * ✅ Marcar usuário: define schedule e warnedAt
    */
   async markWarnedAndSchedule(userId: string, warnedAt: Date, scheduled: Date) {
     await this.dataSource.query(
@@ -167,11 +178,13 @@ export class CleanupService {
   /**
    * ✅ Admin envia e-mail de aviso para uma lista de usuários (ids)
    * - marca inactivityWarnedAt = now
-   * - se não tiver scheduledDeletionAt, agenda delete para "last + days"
+   * - agenda scheduledDeletionAt:
+   *    - se ainda não passou do deleteAt: last + days
+   *    - se já passou (atrasado): now + warnDays (ex.: 7 dias)
    */
   async sendWarnings(userIds: string[], days = 90, warnDays = 7) {
     if (!Array.isArray(userIds) || userIds.length === 0) {
-      return { ok: true, sent: 0 };
+      return { ok: true, sent: 0, skipped: 0 };
     }
 
     days = Number(days);
@@ -182,30 +195,50 @@ export class CleanupService {
     const warnThresholdDays = days - warnDays;
     const now = new Date();
 
+    const adminEmail = normEmail(process.env.ADMIN_EMAIL || '');
+    const adminRecoveryEmail = normEmail(process.env.ADMIN_RECOVERY_EMAIL || '');
+
     let sent = 0;
+    let skipped = 0;
 
     for (const uid of userIds) {
       const u: UserRow[] = await this.dataSource.query(
-        `SELECT id,email,name,role,"inactivityWarnedAt","scheduledDeletionAt","emailOptOut","createdAt" FROM user_entity WHERE id=$1 LIMIT 1`,
+        `SELECT id,email,name,role,"inactivityWarnedAt","scheduledDeletionAt","emailOptOut","createdAt"
+         FROM user_entity WHERE id=$1 LIMIT 1`,
         [uid],
       );
       const user = u?.[0];
-      if (!user) continue;
-      if (user.emailOptOut) continue;
+      if (!user) { skipped++; continue; }
+      if (user.emailOptOut) { skipped++; continue; }
 
-      // calcula last activity para definir datas consistentes
+      const em = normEmail(user.email);
+      if (adminEmail && em === adminEmail) { skipped++; continue; }
+      if (adminRecoveryEmail && em === adminRecoveryEmail) { skipped++; continue; }
+
+      // já avisou, não reenviar
+      if (user.inactivityWarnedAt) { skipped++; continue; }
+
       const lastActivity = await this.getLastActivityForUser(user.id, user.role, user.createdAt);
       const warnAt = this.addDays(lastActivity, warnThresholdDays);
       const deleteAtDefault = this.addDays(lastActivity, days);
-      const deleteAt = user.scheduledDeletionAt ? new Date(user.scheduledDeletionAt) : deleteAtDefault;
 
-      // só envia se estiver na janela correta e ainda não avisou
-      if (user.inactivityWarnedAt) continue;
-      if (now < warnAt || now >= deleteAt) continue;
+      // Se já existe scheduledDeletionAt, usa ela como "deleteAt"
+      const deleteAtExisting = user.scheduledDeletionAt ? new Date(user.scheduledDeletionAt) : null;
 
-      await this.sendInactivityEmail(user.id, user.email, user.name, deleteAt);
+      // Caso normal: na janela 83..90
+      const inWarnWindow = now >= warnAt && now < (deleteAtExisting ?? deleteAtDefault);
 
-      // marca warnedAt agora; preserva schedule se já existia
+      // Caso atrasado: já passou do deleteAt e não avisou -> agenda +warnDays a partir de agora
+      const isLate = now >= (deleteAtExisting ?? deleteAtDefault);
+
+      if (!inWarnWindow && !isLate) { skipped++; continue; }
+
+      // decide data final de exclusão
+      const effectiveDeleteAt = isLate ? this.addDays(now, warnDays) : (deleteAtExisting ?? deleteAtDefault);
+
+      await this.sendInactivityEmail(user.id, user.email, user.name, effectiveDeleteAt);
+
+      // marca warnedAt agora; preserva schedule se já existia, senão coloca effectiveDeleteAt
       await this.dataSource.query(
         `
         UPDATE user_entity
@@ -213,35 +246,36 @@ export class CleanupService {
             "scheduledDeletionAt" = COALESCE("scheduledDeletionAt", $3)
         WHERE id = $1
         `,
-        [user.id, now.toISOString(), deleteAt.toISOString()],
+        [user.id, now.toISOString(), effectiveDeleteAt.toISOString()],
       );
 
       sent++;
     }
 
-    return { ok: true, sent };
+    return { ok: true, sent, skipped };
   }
 
   /**
    * ✅ Admin exclui manualmente uma lista de usuários (ids)
-   * (mantém sua lógica limpa via usersService.removeUser)
    */
   async deleteUsers(userIds: string[]) {
     if (!Array.isArray(userIds) || userIds.length === 0) {
-      return { ok: true, deleted: 0 };
+      return { ok: true, deleted: 0, skipped: 0 };
     }
 
     let deleted = 0;
+    let skipped = 0;
+
     for (const uid of userIds) {
       try {
         await this.usersService.removeUser(uid);
         deleted++;
       } catch {
-        // ignora falhas individuais (ex: já excluído)
+        skipped++;
       }
     }
 
-    return { ok: true, deleted };
+    return { ok: true, deleted, skipped };
   }
 
   // -----------------------------
@@ -262,7 +296,11 @@ export class CleanupService {
     return x;
   }
 
-  private async getLastActivityForUser(userId: string, role: string, createdAt?: Date | null): Promise<Date> {
+  private async getLastActivityForUser(
+    userId: string,
+    role: string,
+    createdAt?: Date | null,
+  ): Promise<Date> {
     const r = String(role || '').toLowerCase();
 
     if (r === 'student') {
@@ -283,7 +321,7 @@ export class CleanupService {
         `
         SELECT MAX(t."createdAt") AS last_activity
         FROM room_entity r
-        JOIN task_entity t ON t."roomId"::text = r.id::text
+        LEFT JOIN task_entity t ON t."roomId"::text = r.id::text
         WHERE r."professorId" = $1
         `,
         [userId],
@@ -292,7 +330,6 @@ export class CleanupService {
       if (dt && !Number.isNaN(dt.getTime())) return dt;
     }
 
-    // fallback: createdAt
     if (createdAt) return new Date(createdAt);
     return await this.getUserCreatedAt(userId);
   }
