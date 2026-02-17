@@ -1,87 +1,80 @@
-import { Controller, Get, Post, Body, Query, UseGuards } from '@nestjs/common';
-import { DataSource } from 'typeorm';
-import { CleanupService } from '../cleanup/cleanup.service';
-import { AdminKeyGuard } from './admin-key.guard';
+import {
+  Controller,
+  Get,
+  Patch,
+  Body,
+  UseGuards,
+  BadRequestException,
+  Post,
+} from '@nestjs/common';
 
-@UseGuards(AdminKeyGuard)
+import { AdminJwtGuard } from './admin-jwt.guard';
+import { AdminService } from './admin.service';
+
 @Controller('admin')
+@UseGuards(AdminJwtGuard)
 export class AdminController {
-  constructor(
-    private readonly dataSource: DataSource,
-    private readonly cleanup: CleanupService,
-  ) {}
+  constructor(private readonly admin: AdminService) {}
 
-  // ✅ diagnóstico para painel (contadores e sinais vitais)
+  @Get('me')
+  me() {
+    return this.admin.getMe();
+  }
+
+  @Patch('me')
+  async updateMe(@Body() body: { email?: string; password?: string }) {
+    const email = body?.email ? String(body.email).trim().toLowerCase() : undefined;
+    const password = body?.password ? String(body.password) : undefined;
+
+    if (!email && !password) {
+      throw new BadRequestException('Nada para atualizar.');
+    }
+
+    return this.admin.updateMe({ email, password });
+  }
+
+  /**
+   * Diagnóstico simples do sistema: contagens e “agendados”.
+   */
   @Get('diagnostics')
   async diagnostics() {
-    const [
-      users,
-      rooms,
-      tasks,
-      essays,
-      enrollments,
-      scheduled,
-      warned,
-    ] = await Promise.all([
-      this.count('user_entity'),
-      this.count('room_entity'),
-      this.count('task_entity'),
-      this.count('essay_entity'),
-      this.count('enrollment_entity'),
-      this.countWhereNotNull('user_entity', 'scheduledDeletionAt'),
-      this.countWhereNotNull('user_entity', 'inactivityWarnedAt'),
-    ]);
-
-    return {
-      ok: true,
-      counts: { users, rooms, tasks, essays, enrollments },
-      cleanupFlags: {
-        scheduledDeletionAt: scheduled,
-        inactivityWarnedAt: warned,
-      },
-      nowISO: new Date().toISOString(),
-    };
+    return this.admin.getDiagnostics();
   }
 
-  // ✅ lista candidatos (dia 83 e dia 90)
-  @Get('cleanup/preview')
-  async cleanupPreview(
-    @Query('days') days?: string,
-    @Query('warnDays') warnDays?: string,
-  ) {
-    return this.cleanup.previewInactiveCleanup(
-      days ? Number(days) : 90,
-      warnDays ? Number(warnDays) : 7,
-    );
+  /**
+   * Prévia para admin ver quem está no “dia 83” (avisar) e “dia 90” (excluir)
+   * Baseado no mesmo cálculo do CleanupService.
+   */
+  @Post('cleanup/preview')
+  async cleanupPreview(@Body() body: { days?: number; warnDays?: number }) {
+    const days = Number(body?.days ?? 90);
+    const warnDays = Number(body?.warnDays ?? 7);
+    return this.admin.getCleanupPreview(days, warnDays);
   }
 
-  // ✅ envia avisos manualmente
+  /**
+   * Admin envia manualmente avisos (dia 83) para usuários selecionados.
+   * (apenas envia email e marca warning/scheduledDeletionAt)
+   */
   @Post('cleanup/send-warnings')
-  async sendWarnings(
-    @Body() body: { userIds: string[]; days?: number; warnDays?: number },
-  ) {
-    return this.cleanup.sendWarnings(
-      body?.userIds || [],
-      body?.days ?? 90,
-      body?.warnDays ?? 7,
-    );
+  async sendWarnings(@Body() body: { userIds?: string[]; days?: number; warnDays?: number }) {
+    const userIds = Array.isArray(body?.userIds) ? body.userIds.map(String) : [];
+    if (userIds.length === 0) throw new BadRequestException('userIds é obrigatório.');
+
+    const days = Number(body?.days ?? 90);
+    const warnDays = Number(body?.warnDays ?? 7);
+
+    return this.admin.sendWarningsManual(userIds, days, warnDays);
   }
 
-  // ✅ exclui manualmente
-  @Post('cleanup/delete')
-  async deleteUsers(@Body() body: { userIds: string[] }) {
-    return this.cleanup.deleteUsers(body?.userIds || []);
-  }
+  /**
+   * Admin exclui manualmente usuários selecionados (dia 90).
+   */
+  @Post('cleanup/delete-users')
+  async deleteUsers(@Body() body: { userIds?: string[] }) {
+    const userIds = Array.isArray(body?.userIds) ? body.userIds.map(String) : [];
+    if (userIds.length === 0) throw new BadRequestException('userIds é obrigatório.');
 
-  private async count(table: string) {
-    const r = await this.dataSource.query(`SELECT COUNT(*)::int AS n FROM ${table}`);
-    return Number(r?.[0]?.n ?? 0);
-  }
-
-  private async countWhereNotNull(table: string, col: string) {
-    const r = await this.dataSource.query(
-      `SELECT COUNT(*)::int AS n FROM ${table} WHERE "${col}" IS NOT NULL`,
-    );
-    return Number(r?.[0]?.n ?? 0);
+    return this.admin.deleteUsersManual(userIds);
   }
 }
