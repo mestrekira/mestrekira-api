@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, BadRequestException } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 import { UsersService } from '../users/users.service';
 import { MailService } from '../mail/mail.service';
@@ -9,9 +9,12 @@ type UserRow = {
   email: string;
   name: string;
   role: string;
+
   last_activity: Date | null;
+
   inactivityWarnedAt: Date | null;
   scheduledDeletionAt: Date | null;
+
   emailOptOut: boolean | null;
   createdAt?: Date | null;
 };
@@ -21,17 +24,20 @@ type CleanupCandidate = {
   email: string;
   name: string;
   role: string;
+
   lastActivityISO: string;
   warnAtISO: string;
   deleteAtISO: string;
+
   inactivityWarnedAtISO: string | null;
   scheduledDeletionAtISO: string | null;
+
   emailOptOut: boolean;
   reason: 'warn_window' | 'delete_due';
 };
 
-function normEmail(v: any) {
-  return String(v || '').trim().toLowerCase();
+function normalizeRole(role: any) {
+  return String(role || '').trim().toLowerCase();
 }
 
 @Injectable()
@@ -42,23 +48,259 @@ export class CleanupService {
     private readonly mail: MailService,
   ) {}
 
+  // ============================================================
+  // ✅ AUTOMÁTICO (CRON) — mantido para compatibilidade
+  // ============================================================
   /**
-   * ✅ Preview (para painel admin):
-   * Retorna quem deve ser AVISADO (dia 83) e quem deve ser EXCLUÍDO (dia 90).
-   * NÃO envia e-mail e NÃO exclui automaticamente.
+   * days=90, warnDays=7 (avisa faltando 7 dias)
+   * maxWarningsPerRun = 200 (limite de envios por execução)
+   *
+   * Flags (ENV) opcionais:
+   * - CLEANUP_AUTODELETE_ENABLED = "true" | "false" (default: true)
+   * - CLEANUP_INCLUDE_PROFESSOR = "true" | "false" (default: true)
    */
-  async previewInactiveCleanup(days = 90, warnDays = 7) {
-    // ✅ freio anti-parâmetro errado
-    days = Number(days);
-    warnDays = Number(warnDays);
+  async runInactiveCleanup(days = 90, warnDays = 7, maxWarningsPerRun = 200) {
+    days = this.safeInt(days, 90, 30, 3650);
+    warnDays = this.safeInt(warnDays, 7, 1, days - 1);
+    maxWarningsPerRun = this.safeInt(maxWarningsPerRun, 200, 1, 5000);
 
-    if (!Number.isFinite(days) || days < 30) days = 90;
-    if (!Number.isFinite(warnDays) || warnDays < 1 || warnDays >= days) warnDays = 7;
+    const includeProfessor = this.envBool('CLEANUP_INCLUDE_PROFESSOR', true);
+    const autoDeleteEnabled = this.envBool('CLEANUP_AUTODELETE_ENABLED', true);
 
     const warnThresholdDays = days - warnDays;
     const now = new Date();
 
-    const rows: UserRow[] = await this.dataSource.query(`
+    const rows = await this.fetchUsersWithLastActivity(includeProfessor);
+
+    let warned = 0;
+    let deleted = 0;
+
+    for (const u of rows) {
+      if (warned >= maxWarningsPerRun) break;
+
+      // respeita opt-out
+      if (u.emailOptOut) continue;
+
+      const last = u.last_activity ?? (u.createdAt ?? (await this.getUserCreatedAt(u.id)));
+      const warnAt = this.addDays(last, warnThresholdDays);
+      const deleteAtDefault = this.addDays(last, days);
+
+      // se já tem scheduledDeletionAt, respeita como data real
+      if (u.scheduledDeletionAt) {
+        const scheduled = new Date(u.scheduledDeletionAt);
+
+        // ✅ chegou o dia: deleta somente se habilitado
+        if (autoDeleteEnabled && now >= scheduled) {
+          await this.usersService.removeUser(u.id);
+          deleted++;
+        }
+        continue;
+      }
+
+      // janela de aviso (>= warnAt e < deleteAt)
+      if (!u.inactivityWarnedAt && now >= warnAt && now < deleteAtDefault) {
+        await this.sendInactivityEmail(u.id, u.email, u.name, deleteAtDefault);
+        await this.markWarnedAndSchedule(u.id, now, deleteAtDefault);
+        warned++;
+        continue;
+      }
+
+      // passou do deleteAt sem aviso -> garante 7 dias a partir de agora
+      if (!u.inactivityWarnedAt && now >= deleteAtDefault) {
+        const schedule = this.addDays(now, 7);
+        await this.sendInactivityEmail(u.id, u.email, u.name, schedule);
+        await this.markWarnedAndSchedule(u.id, now, schedule);
+        warned++;
+      }
+    }
+
+    return { ok: true, warned, deleted, checked: rows.length, maxWarningsPerRun };
+  }
+
+  // ============================================================
+  // ✅ PREVIEW (ADMIN) — NÃO envia e NÃO exclui
+  // ============================================================
+  async previewInactiveCleanup(days = 90, warnDays = 7) {
+    days = this.safeInt(days, 90, 30, 3650);
+    warnDays = this.safeInt(warnDays, 7, 1, days - 1);
+
+    const includeProfessor = this.envBool('CLEANUP_INCLUDE_PROFESSOR', true);
+
+    const warnThresholdDays = days - warnDays;
+    const now = new Date();
+
+    const rows = await this.fetchUsersWithLastActivity(includeProfessor);
+
+    const warnCandidates: CleanupCandidate[] = [];
+    const deleteCandidates: CleanupCandidate[] = [];
+
+    for (const u of rows) {
+      if (u.emailOptOut) continue;
+
+      const last = u.last_activity ?? (u.createdAt ?? (await this.getUserCreatedAt(u.id)));
+      const warnAt = this.addDays(last, warnThresholdDays);
+      const deleteAtDefault = this.addDays(last, days);
+      const deleteAt = u.scheduledDeletionAt ? new Date(u.scheduledDeletionAt) : deleteAtDefault;
+
+      const base: Omit<CleanupCandidate, 'reason'> = {
+        id: String(u.id),
+        email: String(u.email || ''),
+        name: String(u.name || ''),
+        role: String(u.role || ''),
+        lastActivityISO: new Date(last).toISOString(),
+        warnAtISO: new Date(warnAt).toISOString(),
+        deleteAtISO: new Date(deleteAt).toISOString(),
+        inactivityWarnedAtISO: u.inactivityWarnedAt ? new Date(u.inactivityWarnedAt).toISOString() : null,
+        scheduledDeletionAtISO: u.scheduledDeletionAt ? new Date(u.scheduledDeletionAt).toISOString() : null,
+        emailOptOut: !!u.emailOptOut,
+      };
+
+      if (!u.inactivityWarnedAt && now >= warnAt && now < deleteAt) {
+        warnCandidates.push({ ...base, reason: 'warn_window' });
+        continue;
+      }
+
+      if (now >= deleteAt) {
+        deleteCandidates.push({ ...base, reason: 'delete_due' });
+      }
+    }
+
+    return {
+      ok: true,
+      config: { days, warnDays, warnThresholdDays },
+      totals: {
+        checked: rows.length,
+        warnCandidates: warnCandidates.length,
+        deleteCandidates: deleteCandidates.length,
+      },
+      warnCandidates,
+      deleteCandidates,
+      nowISO: now.toISOString(),
+    };
+  }
+
+  // ============================================================
+  // ✅ ADMIN ações manuais
+  // ============================================================
+
+  async sendWarnings(userIds: string[], days = 90, warnDays = 7) {
+    if (!Array.isArray(userIds) || userIds.length === 0) return { ok: true, sent: 0 };
+
+    days = this.safeInt(days, 90, 30, 3650);
+    warnDays = this.safeInt(warnDays, 7, 1, days - 1);
+
+    const warnThresholdDays = days - warnDays;
+    const now = new Date();
+    let sent = 0;
+
+    for (const uid of userIds.map(String)) {
+      const u: UserRow[] = await this.dataSource.query(
+        `SELECT id,email,name,role,"inactivityWarnedAt","scheduledDeletionAt","emailOptOut","createdAt"
+         FROM user_entity WHERE id=$1 LIMIT 1`,
+        [uid],
+      );
+
+      const user = u?.[0];
+      if (!user) continue;
+      if (user.emailOptOut) continue;
+      if (user.inactivityWarnedAt) continue; // já avisou
+
+      const lastActivity = await this.getLastActivityForUser(user.id, user.role, user.createdAt);
+      const warnAt = this.addDays(lastActivity, warnThresholdDays);
+      const deleteAtDefault = this.addDays(lastActivity, days);
+      const deleteAt = user.scheduledDeletionAt ? new Date(user.scheduledDeletionAt) : deleteAtDefault;
+
+      // só envia se estiver na janela correta
+      if (now < warnAt || now >= deleteAt) continue;
+
+      await this.sendInactivityEmail(user.id, user.email, user.name, deleteAt);
+
+      await this.dataSource.query(
+        `
+        UPDATE user_entity
+        SET "inactivityWarnedAt" = $2,
+            "scheduledDeletionAt" = COALESCE("scheduledDeletionAt", $3)
+        WHERE id = $1
+        `,
+        [user.id, now.toISOString(), deleteAt.toISOString()],
+      );
+
+      sent++;
+    }
+
+    return { ok: true, sent };
+  }
+
+  async deleteUsers(userIds: string[]) {
+    if (!Array.isArray(userIds) || userIds.length === 0) return { ok: true, deleted: 0 };
+
+    let deleted = 0;
+    for (const uid of userIds.map(String)) {
+      try {
+        await this.usersService.removeUser(uid);
+        deleted++;
+      } catch {
+        // ignora falhas individuais
+      }
+    }
+
+    return { ok: true, deleted };
+  }
+
+  // ============================================================
+  // Helpers
+  // ============================================================
+
+  async markWarnedAndSchedule(userId: string, warnedAt: Date, scheduled: Date) {
+    await this.dataSource.query(
+      `
+      UPDATE user_entity
+      SET "inactivityWarnedAt" = $2,
+          "scheduledDeletionAt" = $3
+      WHERE id = $1
+      `,
+      [userId, warnedAt.toISOString(), scheduled.toISOString()],
+    );
+  }
+
+  private safeInt(v: any, fallback: number, min: number, max: number) {
+    const n = Number(v);
+    if (!Number.isFinite(n)) return fallback;
+    return Math.max(min, Math.min(max, Math.floor(n)));
+  }
+
+  private envBool(key: string, def: boolean) {
+    const raw = String(process.env[key] || '').trim().toLowerCase();
+    if (!raw) return def;
+    if (raw === 'true' || raw === '1' || raw === 'yes') return true;
+    if (raw === 'false' || raw === '0' || raw === 'no') return false;
+    return def;
+  }
+
+  private addDays(d: Date, days: number) {
+    const x = new Date(d);
+    x.setUTCDate(x.getUTCDate() + days);
+    return x;
+  }
+
+  private async getUserCreatedAt(userId: string): Promise<Date> {
+    const r = await this.dataSource.query(
+      `SELECT "createdAt" FROM user_entity WHERE id = $1 LIMIT 1`,
+      [userId],
+    );
+    const dt = r?.[0]?.createdAt ? new Date(r[0].createdAt) : new Date();
+    if (Number.isNaN(dt.getTime())) return new Date();
+    return dt;
+  }
+
+  private async fetchUsersWithLastActivity(includeProfessor: boolean): Promise<UserRow[]> {
+    // ✅ professor_last com LEFT JOIN (professor sem tasks não “some”)
+    // ✅ filtra professores se includeProfessor=false
+    const roleFilter = includeProfessor
+      ? `WHERE LOWER(u.role) IN ('student','professor')`
+      : `WHERE LOWER(u.role) = 'student'`;
+
+    return this.dataSource.query(`
       WITH student_last AS (
         SELECT e."studentId"::text AS user_id, MAX(e."createdAt") AS last_activity
         FROM essay_entity e
@@ -94,206 +336,8 @@ export class CleanupService {
         u."createdAt"
       FROM user_entity u
       LEFT JOIN last_activity la ON la.user_id = u.id::text
-      WHERE LOWER(u.role) IN ('student', 'professor');
+      ${roleFilter};
     `);
-
-    const warnCandidates: CleanupCandidate[] = [];
-    const deleteCandidates: CleanupCandidate[] = [];
-
-    const adminEmail = normEmail(process.env.ADMIN_EMAIL || '');
-    const adminRecoveryEmail = normEmail(process.env.ADMIN_RECOVERY_EMAIL || '');
-
-    for (const u of rows) {
-      // ✅ Respeita opt-out
-      if (u.emailOptOut) continue;
-
-      // ✅ paranoia: não operar em email do admin (se algum dia aparecer na tabela)
-      const em = normEmail(u.email);
-      if (adminEmail && em === adminEmail) continue;
-      if (adminRecoveryEmail && em === adminRecoveryEmail) continue;
-
-      const last =
-        u.last_activity ?? (u.createdAt ?? (await this.getUserCreatedAt(u.id)));
-
-      const warnAt = this.addDays(last, warnThresholdDays);
-      const deleteAtDefault = this.addDays(last, days);
-
-      // Se já existe scheduledDeletionAt, ele vira a data real de exclusão
-      const deleteAt = u.scheduledDeletionAt ? new Date(u.scheduledDeletionAt) : deleteAtDefault;
-
-      const base: Omit<CleanupCandidate, 'reason'> = {
-        id: String(u.id),
-        email: String(u.email || ''),
-        name: String(u.name || ''),
-        role: String(u.role || ''),
-        lastActivityISO: new Date(last).toISOString(),
-        warnAtISO: new Date(warnAt).toISOString(),
-        deleteAtISO: new Date(deleteAt).toISOString(),
-        inactivityWarnedAtISO: u.inactivityWarnedAt ? new Date(u.inactivityWarnedAt).toISOString() : null,
-        scheduledDeletionAtISO: u.scheduledDeletionAt ? new Date(u.scheduledDeletionAt).toISOString() : null,
-        emailOptOut: !!u.emailOptOut,
-      };
-
-      // ✅ janela de AVISO: now >= warnAt e now < deleteAt e ainda NÃO avisou
-      if (!u.inactivityWarnedAt && now >= warnAt && now < deleteAt) {
-        warnCandidates.push({ ...base, reason: 'warn_window' });
-        continue;
-      }
-
-      // ✅ EXCLUSÃO: now >= deleteAt
-      if (now >= deleteAt) {
-        deleteCandidates.push({ ...base, reason: 'delete_due' });
-      }
-    }
-
-    return {
-      ok: true,
-      config: { days, warnDays, warnThresholdDays },
-      totals: {
-        checked: rows.length,
-        warnCandidates: warnCandidates.length,
-        deleteCandidates: deleteCandidates.length,
-      },
-      warnCandidates,
-      deleteCandidates,
-      nowISO: now.toISOString(),
-    };
-  }
-
-  /**
-   * ✅ Marcar usuário: define schedule e warnedAt
-   */
-  async markWarnedAndSchedule(userId: string, warnedAt: Date, scheduled: Date) {
-    await this.dataSource.query(
-      `
-      UPDATE user_entity
-      SET "inactivityWarnedAt" = $2,
-          "scheduledDeletionAt" = $3
-      WHERE id = $1
-      `,
-      [userId, warnedAt.toISOString(), scheduled.toISOString()],
-    );
-  }
-
-  /**
-   * ✅ Admin envia e-mail de aviso para uma lista de usuários (ids)
-   * - marca inactivityWarnedAt = now
-   * - agenda scheduledDeletionAt:
-   *    - se ainda não passou do deleteAt: last + days
-   *    - se já passou (atrasado): now + warnDays (ex.: 7 dias)
-   */
-  async sendWarnings(userIds: string[], days = 90, warnDays = 7) {
-    if (!Array.isArray(userIds) || userIds.length === 0) {
-      return { ok: true, sent: 0, skipped: 0 };
-    }
-
-    days = Number(days);
-    warnDays = Number(warnDays);
-    if (!Number.isFinite(days) || days < 30) days = 90;
-    if (!Number.isFinite(warnDays) || warnDays < 1 || warnDays >= days) warnDays = 7;
-
-    const warnThresholdDays = days - warnDays;
-    const now = new Date();
-
-    const adminEmail = normEmail(process.env.ADMIN_EMAIL || '');
-    const adminRecoveryEmail = normEmail(process.env.ADMIN_RECOVERY_EMAIL || '');
-
-    let sent = 0;
-    let skipped = 0;
-
-    for (const uid of userIds) {
-      const u: UserRow[] = await this.dataSource.query(
-        `SELECT id,email,name,role,"inactivityWarnedAt","scheduledDeletionAt","emailOptOut","createdAt"
-         FROM user_entity WHERE id=$1 LIMIT 1`,
-        [uid],
-      );
-      const user = u?.[0];
-      if (!user) { skipped++; continue; }
-      if (user.emailOptOut) { skipped++; continue; }
-
-      const em = normEmail(user.email);
-      if (adminEmail && em === adminEmail) { skipped++; continue; }
-      if (adminRecoveryEmail && em === adminRecoveryEmail) { skipped++; continue; }
-
-      // já avisou, não reenviar
-      if (user.inactivityWarnedAt) { skipped++; continue; }
-
-      const lastActivity = await this.getLastActivityForUser(user.id, user.role, user.createdAt);
-      const warnAt = this.addDays(lastActivity, warnThresholdDays);
-      const deleteAtDefault = this.addDays(lastActivity, days);
-
-      // Se já existe scheduledDeletionAt, usa ela como "deleteAt"
-      const deleteAtExisting = user.scheduledDeletionAt ? new Date(user.scheduledDeletionAt) : null;
-
-      // Caso normal: na janela 83..90
-      const inWarnWindow = now >= warnAt && now < (deleteAtExisting ?? deleteAtDefault);
-
-      // Caso atrasado: já passou do deleteAt e não avisou -> agenda +warnDays a partir de agora
-      const isLate = now >= (deleteAtExisting ?? deleteAtDefault);
-
-      if (!inWarnWindow && !isLate) { skipped++; continue; }
-
-      // decide data final de exclusão
-      const effectiveDeleteAt = isLate ? this.addDays(now, warnDays) : (deleteAtExisting ?? deleteAtDefault);
-
-      await this.sendInactivityEmail(user.id, user.email, user.name, effectiveDeleteAt);
-
-      // marca warnedAt agora; preserva schedule se já existia, senão coloca effectiveDeleteAt
-      await this.dataSource.query(
-        `
-        UPDATE user_entity
-        SET "inactivityWarnedAt" = $2,
-            "scheduledDeletionAt" = COALESCE("scheduledDeletionAt", $3)
-        WHERE id = $1
-        `,
-        [user.id, now.toISOString(), effectiveDeleteAt.toISOString()],
-      );
-
-      sent++;
-    }
-
-    return { ok: true, sent, skipped };
-  }
-
-  /**
-   * ✅ Admin exclui manualmente uma lista de usuários (ids)
-   */
-  async deleteUsers(userIds: string[]) {
-    if (!Array.isArray(userIds) || userIds.length === 0) {
-      return { ok: true, deleted: 0, skipped: 0 };
-    }
-
-    let deleted = 0;
-    let skipped = 0;
-
-    for (const uid of userIds) {
-      try {
-        await this.usersService.removeUser(uid);
-        deleted++;
-      } catch {
-        skipped++;
-      }
-    }
-
-    return { ok: true, deleted, skipped };
-  }
-
-  // -----------------------------
-  // Helpers
-  // -----------------------------
-
-  private async getUserCreatedAt(userId: string): Promise<Date> {
-    const r = await this.dataSource.query(
-      `SELECT "createdAt" FROM user_entity WHERE id = $1 LIMIT 1`,
-      [userId],
-    );
-    return new Date(r?.[0]?.createdAt);
-  }
-
-  private addDays(d: Date, days: number) {
-    const x = new Date(d);
-    x.setUTCDate(x.getUTCDate() + days);
-    return x;
   }
 
   private async getLastActivityForUser(
@@ -301,7 +345,7 @@ export class CleanupService {
     role: string,
     createdAt?: Date | null,
   ): Promise<Date> {
-    const r = String(role || '').toLowerCase();
+    const r = normalizeRole(role);
 
     if (r === 'student') {
       const last = await this.dataSource.query(
@@ -330,13 +374,17 @@ export class CleanupService {
       if (dt && !Number.isNaN(dt.getTime())) return dt;
     }
 
-    if (createdAt) return new Date(createdAt);
-    return await this.getUserCreatedAt(userId);
+    if (createdAt) {
+      const dt = new Date(createdAt);
+      if (!Number.isNaN(dt.getTime())) return dt;
+    }
+
+    return this.getUserCreatedAt(userId);
   }
 
-  // -----------------------------
+  // ============================================================
   // E-mail + Unsubscribe
-  // -----------------------------
+  // ============================================================
 
   private async sendInactivityEmail(
     userId: string,
@@ -353,7 +401,7 @@ export class CleanupService {
       ? `${baseUrl}/app/frontend/desempenho.html?roomId=${encodeURIComponent(roomId)}`
       : `${baseUrl}`;
 
-    const unsubscribeUrl = this.buildUnsubscribeUrl(baseUrl, userId, email);
+    const unsubscribeUrl = this.buildUnsubscribeUrl(userId, email);
 
     return this.mail.sendInactivityWarning({
       to: email,
@@ -392,7 +440,7 @@ export class CleanupService {
     return null;
   }
 
-  private buildUnsubscribeUrl(_baseUrl: string, userId: string, email: string) {
+  private buildUnsubscribeUrl(userId: string, email: string) {
     const apiUrl =
       (process.env.API_PUBLIC_URL || '').trim() ||
       'https://mestrekira-api.onrender.com';
