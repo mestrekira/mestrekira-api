@@ -8,5 +8,6 @@ import { MailModule } from '../mail/mail.module';
   imports: [UsersModule, MailModule],
   controllers: [CleanupController],
   providers: [CleanupService],
+  exports: [CleanupService],
 })
 export class CleanupModule {}
