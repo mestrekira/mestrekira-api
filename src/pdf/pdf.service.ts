@@ -54,7 +54,7 @@ function mean(nums: Array<number | null | undefined>) {
   return Math.round(v.reduce((a, b) => a + b, 0) / v.length);
 }
 
-// Donut colorido segmentado
+// Donut SVG segmentado (mantido)
 function donutSvg({
   c1,
   c2,
@@ -130,15 +130,22 @@ export class PdfService {
     const safeStudent = escapeHtml(studentName);
     const safeRoom = escapeHtml(roomName);
 
-    // ✅ Logo local (assets/logo1.png) em Base64
+    // ✅ Logo: tenta URL pública primeiro (se existir), senão cai pra assets base64
+    const logoUrlEnv = String(process.env.PDF_LOGO_URL || '').trim();
     let logoDataUrl = '';
-    try {
-      const logoPath = path.join(process.cwd(), 'assets', 'logo1.png');
-      const logoBase64 = fs.readFileSync(logoPath, 'base64');
-      logoDataUrl = `data:image/png;base64,${logoBase64}`;
-    } catch {
-      // sem logo local; não quebra PDF
-      console.warn('[PDF] assets/logo1.png não encontrada.');
+
+    if (logoUrlEnv) {
+      // Pode ser http(s) ou um data-url já pronto
+      logoDataUrl = logoUrlEnv;
+    } else {
+      try {
+        const logoPath = path.join(process.cwd(), 'assets', 'logo1.png');
+        const logoBase64 = fs.readFileSync(logoPath, 'base64');
+        logoDataUrl = `data:image/png;base64,${logoBase64}`;
+      } catch {
+        console.warn('[PDF] Logo não encontrada em assets/logo1.png e PDF_LOGO_URL não definido.');
+        logoDataUrl = '';
+      }
     }
 
     const tasksMap = new Map((tasks || []).map((t) => [t.id, t.title]));
@@ -167,7 +174,7 @@ export class PdfService {
         const score = e.score ?? '—';
         return `
           <tr>
-            <td>${escapeHtml(title)}</td>
+            <td class="cell-title">${escapeHtml(title)}</td>
             <td>${escapeHtml(dt)}</td>
             <td style="text-align:right;">${escapeHtml(score)}</td>
           </tr>
@@ -177,8 +184,7 @@ export class PdfService {
 
     const details = sorted
       .map((e, idx) => {
-        const title =
-          e.taskTitle || tasksMap.get(e.taskId) || `Tarefa ${idx + 1}`;
+        const title = e.taskTitle || tasksMap.get(e.taskId) || `Tarefa ${idx + 1}`;
         const score = e.score ?? null;
 
         const c1 = clamp0to200(e.c1);
@@ -187,20 +193,21 @@ export class PdfService {
         const c4 = clamp0to200(e.c4);
         const c5 = clamp0to200(e.c5);
 
+        // Conteúdo escapado e seguro
+        const content = escapeHtml(e.content || 'Redação não disponível.');
+
         return `
           <div class="card task">
             <div class="taskGrid">
               <div class="taskInfo">
-                <div class="task-title">${escapeHtml(title)}</div>
-                <div class="muted">Enviada em: ${escapeHtml(
-                  formatDateBR(e.createdAt ?? e.updatedAt),
-                )}</div>
+                <div class="task-title" title="${escapeHtml(title)}">${escapeHtml(title)}</div>
+                <div class="muted">Enviada em: ${escapeHtml(formatDateBR(e.createdAt ?? e.updatedAt))}</div>
                 <div class="muted">Nota: ${
                   score == null ? '— (não corrigida)' : `${escapeHtml(score)} / 1000`
                 }</div>
               </div>
 
-              <div class="taskChart">
+              <div class="taskChart" aria-label="Gráfico de competências">
                 ${
                   score != null
                     ? donutSvg({
@@ -219,51 +226,94 @@ export class PdfService {
             </div>
 
             <div class="essayBox">
-              <strong>Redação</strong><br/><br/>
-              ${escapeHtml(e.content || 'Redação não disponível.')}
+              <div class="essayHeader">Redação</div>
+              <div class="essayContent">${content}</div>
             </div>
           </div>
         `;
       })
       .join('');
 
+    // ✅ HTML do PDF (somente aqui — não toca no frontend)
     const html = `
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
 <meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
 <style>
   :root{
-    --ink:#0f172a; --muted:#64748b; --line:#e5e7eb; --soft:#f8fafc;
+    --ink:#0f172a;
+    --muted:#64748b;
+    --line:#e5e7eb;
+    --soft:#f8fafc;
   }
-  body { font-family: Arial, sans-serif; color:var(--ink); margin:0; }
-  .page { padding: 20px; }
-  .cover { display:flex; flex-direction:column; justify-content:center; height:90vh; }
+
+  /* ✅ Evita conflito: a margem final do PDF é controlada pelo page.pdf({ margin }) */
+  @page { size:A4; margin: 0; }
+
+  html, body { padding:0; margin:0; }
+  body { font-family: Arial, sans-serif; color:var(--ink); }
+
+  h2, h3 { margin: 0 0 10px 0; }
+  .muted { font-size:12px; color:var(--muted); }
+
+  /* ✅ Seções: sem padding “mágico” (margem vem do PDF) */
+  .section { padding: 0; }
+
+  /* ✅ Capa: força quebra depois */
+  .cover { page-break-after: always; break-after: page; }
+  .coverWrap { padding-top: 6mm; }
   .brand { display:flex; align-items:center; gap:12px; }
   .logo { height:50px; width:auto; }
   .title { font-size:26px; font-weight:900; }
-  .card { border:1px solid var(--line); border-radius:14px; padding:14px; margin-bottom:12px; }
-  .muted { font-size:12px; color:var(--muted); }
+
+  .card {
+    border:1px solid var(--line);
+    border-radius:14px;
+    padding:14px;
+    margin: 0 0 12px 0;
+    background:#fff;
+
+    /* ✅ evita cortar cartão no meio (quando possível) */
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
 
   table { width:100%; border-collapse:collapse; margin-top:10px; }
   th,td { padding:8px; border-bottom:1px solid var(--line); font-size:12px; vertical-align:top; }
   th { text-align:left; background: var(--soft); color: var(--muted); }
+  .cell-title { max-width: 70mm; word-break: break-word; overflow-wrap:anywhere; }
 
-  /* ✅ layout FIXO do gráfico: coluna da direita fixa */
+  /* ✅ layout FIXO do gráfico */
   .taskGrid {
     display:grid;
     grid-template-columns: 1fr 140px;
     gap: 12px;
     align-items: start;
   }
-  .taskInfo { min-width: 0; } /* permite quebra de linha sem empurrar o gráfico */
+  .taskInfo { min-width: 0; }
   .taskChart {
     width: 140px;
+    min-height: 44mm;         /* ✅ “âncora” de altura pra não variar */
     display:flex;
     justify-content:center;
     align-items:flex-start;
+    padding-top: 2mm;
+    box-sizing:border-box;
   }
-  .task-title { font-weight:900; font-size:13px; margin-bottom:2px; }
+
+  /* ✅ título não pode empurrar gráfico: limita linhas */
+  .task-title {
+    font-weight:900;
+    font-size:13px;
+    margin-bottom:2px;
+
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
 
   .essayBox {
     margin-top:10px;
@@ -271,18 +321,34 @@ export class PdfService {
     border:1px solid var(--line);
     border-radius:12px;
     background:var(--soft);
-    white-space:pre-wrap;
-    line-height:1.7;
-    text-align:justify;
+  }
 
-    /* ✅ impede estouro por strings longas */
-    overflow-wrap:anywhere;
-    word-break:break-word;
-    hyphens:auto;
+  .essayHeader {
+    font-weight: 900;
+    margin-bottom: 8px;
+    font-size: 12px;
+  }
+
+  /* ✅ wrap “blindado” */
+  .essayContent {
+    white-space: pre-wrap;
+    line-height: 1.7;
+    text-align: justify;
+
+    overflow-wrap: anywhere;
+    word-break: break-word;
+    hyphens: auto;
+
+    /* ✅ permite quebrar no meio do texto sem estourar layout */
+    break-inside: auto;
+    page-break-inside: auto;
   }
 
   .kpiRow{
-    display:flex; gap:8px; flex-wrap:wrap; margin-top:10px;
+    display:flex;
+    gap:8px;
+    flex-wrap:wrap;
+    margin-top:10px;
   }
   .kpi{
     border:1px solid var(--line);
@@ -294,23 +360,27 @@ export class PdfService {
   }
   .kpi b{ color: var(--ink); }
 
-  @page { size:A4; margin:20mm 12mm; }
+  /* ✅ Seção detalhes sempre começa em página nova */
+  .pageBreakBefore { page-break-before: always; break-before: page; }
+
 </style>
 </head>
 <body>
 
-<div class="page cover">
-  <div class="brand">
-    ${logoDataUrl ? `<img src="${logoDataUrl}" class="logo" alt="Mestre Kira"/>` : ``}
-    <div class="title">Mestre Kira</div>
+<section class="section cover">
+  <div class="coverWrap">
+    <div class="brand">
+      ${logoDataUrl ? `<img src="${logoDataUrl}" class="logo" alt="Mestre Kira"/>` : ``}
+      <div class="title">Mestre Kira</div>
+    </div>
+    <p class="muted">Relatório de desempenho</p>
+    <p><strong>Estudante:</strong> ${safeStudent}</p>
+    <p><strong>Sala:</strong> ${safeRoom}</p>
+    <p><strong>Gerado em:</strong> ${escapeHtml(formatDateBR(new Date()))}</p>
   </div>
-  <p class="muted">Relatório de desempenho</p>
-  <p><strong>Estudante:</strong> ${safeStudent}</p>
-  <p><strong>Sala:</strong> ${safeRoom}</p>
-  <p><strong>Gerado em:</strong> ${escapeHtml(formatDateBR(new Date()))}</p>
-</div>
+</section>
 
-<div class="page">
+<section class="section">
   <h2>Resumo Geral</h2>
 
   <div class="card">
@@ -350,9 +420,10 @@ export class PdfService {
     </table>
   </div>
 
+  <div class="pageBreakBefore"></div>
   <h2>Detalhes por tarefa</h2>
   ${details}
-</div>
+</section>
 
 </body>
 </html>
@@ -367,31 +438,47 @@ export class PdfService {
 
     try {
       const page = await browser.newPage();
+
+      // ✅ Opcional, mas ajuda se PDF_LOGO_URL for remoto (evita bloqueio por CORS em algumas configs)
+      await page.setBypassCSP(true);
+
       await page.setContent(html, { waitUntil: 'networkidle0' });
+
+      const headerRoom = safeRoom;
+      const headerStudent = safeStudent;
 
       const pdf = await page.pdf({
         format: 'A4',
         printBackground: true,
         displayHeaderFooter: true,
+
+        // ✅ altura fixa para não variar entre páginas
         headerTemplate: `
-          <div style="font-size:9px; width:100%; padding:0 12mm; display:flex; justify-content:space-between; align-items:center;">
-            <div style="display:flex; align-items:center; gap:6px;">
+          <div style="width:100%; height:18mm; padding:0 12mm; display:flex; align-items:center; justify-content:space-between; box-sizing:border-box;">
+            <div style="display:flex; align-items:center; gap:6px; min-width:0;">
               ${logoDataUrl ? `<img src="${logoDataUrl}" style="height:14px; width:auto;" />` : ``}
-              <span style="color:#475569; font-weight:700;">Mestre Kira</span>
+              <span style="color:#475569; font-weight:700; white-space:nowrap;">Mestre Kira</span>
               <span style="color:#94a3b8;">•</span>
-              <span style="color:#64748b;">${safeRoom}</span>
+              <span style="color:#64748b; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:260px;">
+                ${headerRoom}
+              </span>
             </div>
-            <span style="color:#64748b;">Estudante: ${safeStudent}</span>
+            <span style="color:#64748b; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:240px;">
+              Estudante: ${headerStudent}
+            </span>
           </div>
         `,
+
         footerTemplate: `
-          <div style="font-size:9px; width:100%; padding:0 12mm; display:flex; justify-content:space-between;">
-            <span style="color:#64748b;">© 2026 Mestre Kira. Todos os direitos reservados.</span>
-            <span style="color:#64748b;">
+          <div style="width:100%; height:14mm; padding:0 12mm; display:flex; align-items:center; justify-content:space-between; box-sizing:border-box;">
+            <span style="color:#64748b; font-size:9px;">© 2026 Mestre Kira. Todos os direitos reservados.</span>
+            <span style="color:#64748b; font-size:9px;">
               Página <span class="pageNumber"></span> de <span class="totalPages"></span>
             </span>
           </div>
         `,
+
+        // ✅ Uma única fonte de verdade para margens (mantém espaço pro header/footer)
         margin: { top: '25mm', bottom: '20mm', left: '12mm', right: '12mm' },
       });
 
