@@ -7,7 +7,7 @@ import {
   Index,
 } from 'typeorm';
 
-@Entity({ name: 'user_entity' }) // use o nome real da sua tabela se for diferente
+@Entity({ name: 'user_entity' })
 @Index(['email'], { unique: true })
 export class UserEntity {
   // ================================
@@ -26,9 +26,57 @@ export class UserEntity {
   @Column({ type: 'text' })
   password: string;
 
+  /**
+   * Roles atuais:
+   * - 'student'
+   * - 'professor'
+   * Novo:
+   * - 'school'
+   */
   @Column({ type: 'text', default: 'student' })
-  role: string; // 'student' | 'professor'
+  role: string;
 
+  // ================================
+  // 🔹 Novos campos: Escola / Professor gerenciado / Billing / Limites
+  // ================================
+
+  /**
+   * Para professores:
+   * - 'INDIVIDUAL' (paga futuramente)
+   * - 'SCHOOL' (gerenciado por escola, não paga)
+   * null para student/school
+   */
+  @Column({ type: 'text', nullable: true })
+  professorType: string | null; // 'INDIVIDUAL' | 'SCHOOL'
+
+  /**
+   * Para professor gerenciado por escola:
+   * aponta para o ID do usuário escola (role='school')
+   */
+  @Column({ type: 'uuid', nullable: true })
+  schoolId: string | null;
+
+  /**
+   * Professor cadastrado pela escola deve trocar senha no primeiro acesso
+   */
+  @Column({ type: 'boolean', default: false })
+  mustChangePassword: boolean;
+
+  /**
+   * “Mostra grátis” do professor individual (primeiro acesso):
+   * quando true, limite por sala fica 25
+   */
+  @Column({ type: 'boolean', default: false })
+  trialMode: boolean;
+
+  /**
+   * Base para cobrança futura (Stripe/MercadoPago/etc.)
+   */
+  @Column({ type: 'text', nullable: true })
+  paymentCustomerId: string | null;
+
+  @Column({ type: 'boolean', default: true })
+  isActive: boolean;
 
   // ================================
   // 🔹 Controle de inatividade
@@ -40,14 +88,12 @@ export class UserEntity {
   @Column({ type: 'timestamptz', nullable: true })
   scheduledDeletionAt: Date | null;
 
-
   // ================================
   // 🔹 Preferências de e-mail
   // ================================
 
   @Column({ type: 'boolean', default: false })
   emailOptOut: boolean;
-
 
   // ================================
   // 🔹 Verificação de e-mail
@@ -65,7 +111,6 @@ export class UserEntity {
   @Column({ type: 'timestamptz', nullable: true })
   emailVerifyTokenExpiresAt: Date | null;
 
-
   // ================================
   // 🔹 Recuperação de senha
   // ================================
@@ -75,7 +120,6 @@ export class UserEntity {
 
   @Column({ type: 'timestamptz', nullable: true })
   passwordResetTokenExpiresAt: Date | null;
-
 
   // ================================
   // 🔹 Datas automáticas
