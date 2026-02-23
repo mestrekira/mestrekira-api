@@ -36,20 +36,31 @@ function escapeHtml(s: any) {
     .replace(/'/g, '&#039;');
 }
 
-// Útil para header/footer do puppeteer (evita quebrar template com caracteres especiais)
-function escapeHtmlAttr(s: any) {
-  // header/footer aceitam HTML; melhor escapar igual.
-  return escapeHtml(s);
-}
-
-function formatDateBR(value: any) {
+/**
+ * ✅ Datas em pt-BR + fuso configurável
+ * - Por padrão: America/Sao_Paulo (corrige “hora do servidor/USA”)
+ * - Você pode sobrescrever por env: PDF_TZ=America/Sao_Paulo (ou outro)
+ */
+function formatDateBR(value: any, tz?: string) {
   if (!value) return '—';
-  const d = new Date(value);
+  const d = value instanceof Date ? value : new Date(value);
   if (Number.isNaN(d.getTime())) return '—';
-  return new Intl.DateTimeFormat('pt-BR', {
-    dateStyle: 'short',
-    timeStyle: 'short',
-  }).format(d);
+
+  const timeZone = String(tz || process.env.PDF_TZ || 'America/Sao_Paulo').trim();
+
+  try {
+    return new Intl.DateTimeFormat('pt-BR', {
+      dateStyle: 'short',
+      timeStyle: 'short',
+      timeZone,
+    }).format(d);
+  } catch {
+    // fallback (sem TZ)
+    return new Intl.DateTimeFormat('pt-BR', {
+      dateStyle: 'short',
+      timeStyle: 'short',
+    }).format(d);
+  }
 }
 
 function mean(nums: Array<number | null | undefined>) {
@@ -136,50 +147,45 @@ export class PdfService {
     const safeStudent = escapeHtml(studentName);
     const safeRoom = escapeHtml(roomName);
 
-    // ✅ Logo: tenta URL pública primeiro (se existir), senão cai pra assets base64
-    // IMPORTANTÍSSIMO: header/footer do puppeteer às vezes falha com imagens remotas (CORS/rede).
-    // Então: se PDF_LOGO_URL for http(s), tentamos baixar e converter pra data-url.
+    // ✅ TZ (corrige horário do relatório)
+    const timeZone = String(process.env.PDF_TZ || 'America/Sao_Paulo').trim();
+
+    /**
+     * ✅ LOGO:
+     * - Para HEADER do Puppeteer, o mais confiável é usar DATA-URL (base64).
+     * - Se PDF_LOGO_URL for http(s), pode falhar no header (e não “espera” rede).
+     * - Então: se for http(s), ainda tentamos usar como está, mas preferimos base64 local.
+     */
     const logoUrlEnv = String(process.env.PDF_LOGO_URL || '').trim();
     let logoDataUrl = '';
 
-    async function tryUrlToDataUrl(url: string): Promise<string> {
-      try {
-        // já é data-url
-        if (/^data:image\//i.test(url)) return url;
-
-        // baixa e converte pra base64
-        const res = await fetch(url);
-        if (!res.ok) return '';
-
-        const ct = String(res.headers.get('content-type') || '').toLowerCase();
-        // fallback: png
-        const mime =
-          ct.includes('image/') ? ct.split(';')[0].trim() : 'image/png';
-
-        const arrBuf = await res.arrayBuffer();
-        const base64 = Buffer.from(arrBuf).toString('base64');
-        return `data:${mime};base64,${base64}`;
-      } catch {
-        return '';
-      }
-    }
-
-    if (logoUrlEnv) {
-      // Se for URL remota, converte pra data-url pra garantir no header.
-      logoDataUrl =
-        /^https?:\/\//i.test(logoUrlEnv) ? await tryUrlToDataUrl(logoUrlEnv) : logoUrlEnv;
-    }
-
-    if (!logoDataUrl) {
+    // helper local: tenta ler base64 do assets
+    const loadLocalLogo = () => {
       try {
         const logoPath = path.join(process.cwd(), 'assets', 'logo1.png');
         const logoBase64 = fs.readFileSync(logoPath, 'base64');
-        logoDataUrl = `data:image/png;base64,${logoBase64}`;
+        return `data:image/png;base64,${logoBase64}`;
       } catch {
+        return '';
+      }
+    };
+
+    if (logoUrlEnv) {
+      // Se já vier data-url, perfeito. Se vier http(s), pode funcionar no corpo, mas no header pode falhar.
+      // Para evitar sumir no header, tentamos cair pra assets/ primeiro se existir.
+      const isData = /^data:image\//i.test(logoUrlEnv);
+      if (isData) {
+        logoDataUrl = logoUrlEnv;
+      } else {
+        // tenta base64 local; se não existir, usa a URL mesmo
+        logoDataUrl = loadLocalLogo() || logoUrlEnv;
+      }
+    } else {
+      logoDataUrl = loadLocalLogo();
+      if (!logoDataUrl) {
         console.warn(
-          '[PDF] Logo não encontrada em assets/logo1.png e PDF_LOGO_URL não definido/indisponível.',
+          '[PDF] Logo não encontrada em assets/logo1.png e PDF_LOGO_URL não definido.',
         );
-        logoDataUrl = '';
       }
     }
 
@@ -205,7 +211,7 @@ export class PdfService {
     const summaryRows = sorted
       .map((e) => {
         const title = e.taskTitle || tasksMap.get(e.taskId) || 'Tarefa';
-        const dt = formatDateBR(e.createdAt ?? e.updatedAt);
+        const dt = formatDateBR(e.createdAt ?? e.updatedAt, timeZone);
         const score = e.score ?? '—';
         return `
           <tr>
@@ -219,8 +225,7 @@ export class PdfService {
 
     const details = sorted
       .map((e, idx) => {
-        const title =
-          e.taskTitle || tasksMap.get(e.taskId) || `Tarefa ${idx + 1}`;
+        const title = e.taskTitle || tasksMap.get(e.taskId) || `Tarefa ${idx + 1}`;
         const score = e.score ?? null;
 
         const c1 = clamp0to200(e.c1);
@@ -229,7 +234,6 @@ export class PdfService {
         const c4 = clamp0to200(e.c4);
         const c5 = clamp0to200(e.c5);
 
-        // Conteúdo escapado e seguro
         const content = escapeHtml(e.content || 'Redação não disponível.');
 
         return `
@@ -237,7 +241,7 @@ export class PdfService {
             <div class="taskGrid">
               <div class="taskInfo">
                 <div class="task-title" title="${escapeHtml(title)}">${escapeHtml(title)}</div>
-                <div class="muted">Enviada em: ${escapeHtml(formatDateBR(e.createdAt ?? e.updatedAt))}</div>
+                <div class="muted">Enviada em: ${escapeHtml(formatDateBR(e.createdAt ?? e.updatedAt, timeZone))}</div>
                 <div class="muted">Nota: ${
                   score == null ? '— (não corrigida)' : `${escapeHtml(score)} / 1000`
                 }</div>
@@ -270,24 +274,22 @@ export class PdfService {
       })
       .join('');
 
-    // --------------------
-    // ✅ MARGENS / HEADER / CAPA (corrigidos)
-    // Ideia:
-    // - Definir UMA largura de conteúdo (container) com padding lateral = margem do PDF
-    // - Usar @page margin 0 e controlar margens exclusivamente pelo container + pdf margin (top/bottom)
-    // - Capa com grid: logo + marca à esquerda, e bloco de info abaixo, alinhado à esquerda
-    // - Header/footer com logo via data-url (mais confiável)
-    // --------------------
+    /**
+     * ✅ MARGENS / HEADER OVERLAP (o seu problema #2)
+     * Quando o conteúdo “sobe” e encosta/atravessa o header:
+     * - o headerTemplate está mais “alto” do que a margem top
+     * - ou a margem top está muito pequena
+     *
+     * Então aqui fixamos:
+     * - header com altura real ~16mm
+     * - margem top maior (~34mm) para sobrar “respiro”
+     * - removemos qualquer coisa que empurre “pro topo” na capa e centralizamos
+     */
+    const PDF_MARGIN_TOP = String(process.env.PDF_MARGIN_TOP || '34mm');
+    const PDF_MARGIN_BOTTOM = String(process.env.PDF_MARGIN_BOTTOM || '20mm');
+    const PDF_MARGIN_LR = String(process.env.PDF_MARGIN_LR || '12mm');
 
-    const MARGIN_X_MM = 12;     // esquerda/direita
-    const HEADER_H_MM = 18;     // altura do header
-    const FOOTER_H_MM = 14;     // altura do footer
-    const BODY_TOP_MM = 25;     // espaço reservado (header + folga)
-    const BODY_BOTTOM_MM = 20;  // espaço reservado (footer + folga)
-
-    const headerRoom = escapeHtmlAttr(roomName);
-    const headerStudent = escapeHtmlAttr(studentName);
-
+    // ✅ HTML do PDF
     const html = `
 <!DOCTYPE html>
 <html lang="pt-BR">
@@ -302,50 +304,29 @@ export class PdfService {
     --soft:#f8fafc;
   }
 
-  /* ✅ margin 0: quem define "margem" é o pdf() + o container */
+  /* O recorte de página é controlado pelo Puppeteer (page.pdf margin). */
   @page { size:A4; margin: 0; }
 
   html, body { padding:0; margin:0; }
-  body { font-family: Arial, sans-serif; color:var(--ink); -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  body { font-family: Arial, sans-serif; color:var(--ink); }
 
   h2, h3 { margin: 0 0 10px 0; }
   .muted { font-size:12px; color:var(--muted); }
 
-  /* ✅ Container que simula as margens laterais */
-  .container {
-    box-sizing: border-box;
-    width: 100%;
-    padding: 0 ${MARGIN_X_MM}mm;
-  }
-
-  /* ✅ Seções: sem padding extra */
   .section { padding: 0; }
 
-  /* ✅ Capa: centraliza verticalmente com “min-height” e flex */
-  .cover {
-    page-break-after: always;
-    break-after: page;
-  }
-  .coverInner{
-    min-height: 240mm;         /* ~altura útil A4, com folga */
-    display:flex;
-    flex-direction:column;
-    justify-content:center;    /* ✅ centraliza vertical */
-    gap: 10mm;
-  }
-
-  /* ✅ Marca à esquerda, estável */
-  .brand {
+  /* ✅ CAPA: centraliza verticalmente dentro da área do conteúdo (não cola no topo) */
+  .cover { page-break-after: always; break-after: page; }
+  .coverWrap {
+    min-height: 230mm;              /* “tamanho” estável no A4 */
     display:flex;
     align-items:center;
-    justify-content:flex-start;
-    gap: 10px;
   }
-  .logo { height:52px; width:auto; display:block; }
-  .title { font-size:28px; font-weight:900; line-height:1.1; }
+  .coverInner { width:100%; }
 
-  .coverMeta p { margin: 4px 0; }
-  .coverMeta strong { color: var(--ink); }
+  .brand { display:flex; align-items:center; gap:12px; }
+  .logo { height:50px; width:auto; }
+  .title { font-size:26px; font-weight:900; }
 
   .card {
     border:1px solid var(--line);
@@ -353,7 +334,6 @@ export class PdfService {
     padding:14px;
     margin: 0 0 12px 0;
     background:#fff;
-
     break-inside: avoid;
     page-break-inside: avoid;
   }
@@ -432,14 +412,12 @@ export class PdfService {
   .kpi b{ color: var(--ink); }
 
   .pageBreakBefore { page-break-before: always; break-before: page; }
-
 </style>
 </head>
 <body>
 
-<!-- CAPA -->
 <section class="section cover">
-  <div class="container">
+  <div class="coverWrap">
     <div class="coverInner">
       <div class="brand">
         ${logoDataUrl ? `<img src="${logoDataUrl}" class="logo" alt="Mestre Kira"/>` : ``}
@@ -449,61 +427,58 @@ export class PdfService {
         </div>
       </div>
 
-      <div class="coverMeta">
+      <div style="margin-top:18px;">
         <p><strong>Estudante:</strong> ${safeStudent}</p>
         <p><strong>Sala:</strong> ${safeRoom}</p>
-        <p><strong>Gerado em:</strong> ${escapeHtml(formatDateBR(new Date()))}</p>
+        <p><strong>Gerado em:</strong> ${escapeHtml(formatDateBR(new Date(), timeZone))}</p>
       </div>
     </div>
   </div>
 </section>
 
-<!-- CONTEÚDO -->
 <section class="section">
-  <div class="container">
-    <h2>Resumo Geral</h2>
+  <h2>Resumo Geral</h2>
 
-    <div class="card">
-      ${
-        averages.total != null
-          ? donutSvg({
-              c1: averages.c1 ?? 0,
-              c2: averages.c2 ?? 0,
-              c3: averages.c3 ?? 0,
-              c4: averages.c4 ?? 0,
-              c5: averages.c5 ?? 0,
-              totalText: String(averages.total),
-              size: 120,
-              hole: 38,
-            })
-          : `<div class="muted">Sem correções ainda.</div>`
-      }
+  <div class="card">
+    ${
+      averages.total != null
+        ? donutSvg({
+            c1: averages.c1 ?? 0,
+            c2: averages.c2 ?? 0,
+            c3: averages.c3 ?? 0,
+            c4: averages.c4 ?? 0,
+            c5: averages.c5 ?? 0,
+            totalText: String(averages.total),
+            size: 120,
+            hole: 38,
+          })
+        : `<div class="muted">Sem correções ainda.</div>`
+    }
 
-      <div class="kpiRow">
-        <span class="kpi"><b>C1</b>: ${averages.c1 ?? '—'}</span>
-        <span class="kpi"><b>C2</b>: ${averages.c2 ?? '—'}</span>
-        <span class="kpi"><b>C3</b>: ${averages.c3 ?? '—'}</span>
-        <span class="kpi"><b>C4</b>: ${averages.c4 ?? '—'}</span>
-        <span class="kpi"><b>C5</b>: ${averages.c5 ?? '—'}</span>
-      </div>
+    <div class="kpiRow">
+      <span class="kpi"><b>C1</b>: ${averages.c1 ?? '—'}</span>
+      <span class="kpi"><b>C2</b>: ${averages.c2 ?? '—'}</span>
+      <span class="kpi"><b>C3</b>: ${averages.c3 ?? '—'}</span>
+      <span class="kpi"><b>C4</b>: ${averages.c4 ?? '—'}</span>
+      <span class="kpi"><b>C5</b>: ${averages.c5 ?? '—'}</span>
     </div>
-
-    <div class="card">
-      <h3>Sumário</h3>
-      <table>
-        <thead>
-          <tr><th>Tarefa</th><th>Data</th><th style="text-align:right;">Nota</th></tr>
-        </thead>
-        <tbody>
-          ${summaryRows || `<tr><td colspan="3">Nenhuma redação encontrada.</td></tr>`}
-        </tbody>
-      </table>
-    </div>
-
-    <div class="pageBreakBefore"></div>
-    <h2>Detalhes por tarefa</h2>
-    ${details}
   </div>
+
+  <div class="card">
+    <h3>Sumário</h3>
+    <table>
+      <thead>
+        <tr><th>Tarefa</th><th>Data</th><th style="text-align:right;">Nota</th></tr>
+      </thead>
+      <tbody>
+        ${summaryRows || `<tr><td colspan="3">Nenhuma redação encontrada.</td></tr>`}
+      </tbody>
+    </table>
+  </div>
+
+  <div class="pageBreakBefore"></div>
+  <h2>Detalhes por tarefa</h2>
+  ${details}
 </section>
 
 </body>
@@ -520,101 +495,62 @@ export class PdfService {
     try {
       const page = await browser.newPage();
 
-      // ajuda se tiver fonte/imagens, e evita bloqueios em configs mais restritas
+      // Ajuda quando logo é URL remota (e algumas configs CSP)
       await page.setBypassCSP(true);
 
-      // Dica: dá tempo do Chrome desenhar imagens/data-url antes do PDF
       await page.setContent(html, { waitUntil: 'networkidle0' });
 
-      // ✅ garante que imagens carregaram (inclui data-url)
-      await page.evaluate(async () => {
-        const imgs = Array.from(document.images || []);
-        await Promise.all(
-          imgs.map(
-            (img) =>
-              new Promise<void>((resolve) => {
-                if (!img) return resolve();
-                if ((img as any).complete) return resolve();
-                img.addEventListener('load', () => resolve(), { once: true });
-                img.addEventListener('error', () => resolve(), { once: true });
-              }),
-          ),
-        );
-      });
+      const headerRoom = safeRoom;
+      const headerStudent = safeStudent;
 
-      // ✅ Header/Footer: em puppeteer, estilos precisam ser inline
-      // Nota: manter altura fixa para não variar entre páginas
+      // ✅ Header “baixo” e com altura real dentro do espaço de margem (evita overlap)
+      const headerTemplate = `
+        <div style="width:100%; box-sizing:border-box; padding:0 ${PDF_MARGIN_LR}; height:16mm; display:flex; align-items:center; justify-content:space-between; border-bottom:1px solid rgba(15,23,42,0.10);">
+          <div style="display:flex; align-items:center; gap:8px; min-width:0;">
+            ${
+              logoDataUrl
+                ? `<img src="${logoDataUrl}" style="height:12px; width:auto; display:block;" />`
+                : ``
+            }
+            <span style="color:#475569; font-weight:800; font-size:10px; white-space:nowrap;">Mestre Kira</span>
+            <span style="color:#94a3b8; font-size:10px;">•</span>
+            <span style="color:#64748b; font-size:10px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:260px;">
+              ${headerRoom}
+            </span>
+          </div>
+          <span style="color:#64748b; font-size:10px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:260px;">
+            Estudante: ${headerStudent}
+          </span>
+        </div>
+      `;
+
+      const footerTemplate = `
+        <div style="width:100%; box-sizing:border-box; padding:0 ${PDF_MARGIN_LR}; height:14mm; display:flex; align-items:center; justify-content:space-between; border-top:1px solid rgba(15,23,42,0.10);">
+          <span style="color:#64748b; font-size:9px;">© 2026 Mestre Kira. Todos os direitos reservados.</span>
+          <span style="color:#64748b; font-size:9px;">
+            Página <span class="pageNumber"></span> de <span class="totalPages"></span>
+          </span>
+        </div>
+      `;
+
       const pdf = await page.pdf({
         format: 'A4',
         printBackground: true,
         displayHeaderFooter: true,
 
-        headerTemplate: `
-          <div style="
-            width:100%;
-            height:${HEADER_H_MM}mm;
-            padding:0 ${MARGIN_X_MM}mm;
-            display:flex;
-            align-items:center;
-            justify-content:space-between;
-            box-sizing:border-box;
-            font-family: Arial, sans-serif;
-          ">
-            <div style="display:flex; align-items:center; gap:6px; min-width:0;">
-              ${
-                logoDataUrl
-                  ? `<img src="${logoDataUrl}" style="height:14px; width:auto; display:block;" />`
-                  : ``
-              }
-              <span style="color:#475569; font-weight:700; white-space:nowrap;">Mestre Kira</span>
-              <span style="color:#94a3b8;">•</span>
-              <span style="
-                color:#64748b;
-                overflow:hidden;
-                text-overflow:ellipsis;
-                white-space:nowrap;
-                max-width:260px;
-              ">
-                ${headerRoom}
-              </span>
-            </div>
+        headerTemplate,
+        footerTemplate,
 
-            <span style="
-              color:#64748b;
-              overflow:hidden;
-              text-overflow:ellipsis;
-              white-space:nowrap;
-              max-width:240px;
-            ">
-              Estudante: ${headerStudent}
-            </span>
-          </div>
-        `,
-
-        footerTemplate: `
-          <div style="
-            width:100%;
-            height:${FOOTER_H_MM}mm;
-            padding:0 ${MARGIN_X_MM}mm;
-            display:flex;
-            align-items:center;
-            justify-content:space-between;
-            box-sizing:border-box;
-            font-family: Arial, sans-serif;
-          ">
-            <span style="color:#64748b; font-size:9px;">© 2026 Mestre Kira. Todos os direitos reservados.</span>
-            <span style="color:#64748b; font-size:9px;">
-              Página <span class="pageNumber"></span> de <span class="totalPages"></span>
-            </span>
-          </div>
-        `,
-
-        // ✅ Margens: reservam espaço para header/footer + conteúdo
+        /**
+         * ✅ MARGENS (principal correção do seu print):
+         * - top maior pra caber header + respiro
+         * - left/right mantém seu layout
+         */
         margin: {
-          top: `${BODY_TOP_MM}mm`,
-          bottom: `${BODY_BOTTOM_MM}mm`,
-          left: `${MARGIN_X_MM}mm`,
-          right: `${MARGIN_X_MM}mm`,
+          top: PDF_MARGIN_TOP,
+          bottom: PDF_MARGIN_BOTTOM,
+          left: PDF_MARGIN_LR,
+          right: PDF_MARGIN_LR,
         },
       });
 
