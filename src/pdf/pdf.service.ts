@@ -38,8 +38,8 @@ function escapeHtml(s: any) {
 
 /**
  * ✅ Datas em pt-BR + fuso configurável
- * - Por padrão: America/Sao_Paulo (corrige “hora do servidor/USA”)
- * - Você pode sobrescrever por env: PDF_TZ=America/Sao_Paulo (ou outro)
+ * - Padrão: America/Sao_Paulo (corrige “hora do servidor/USA”)
+ * - Override por env: PDF_TZ=America/Sao_Paulo
  */
 function formatDateBR(value: any, tz?: string) {
   if (!value) return '—';
@@ -55,7 +55,6 @@ function formatDateBR(value: any, tz?: string) {
       timeZone,
     }).format(d);
   } catch {
-    // fallback (sem TZ)
     return new Intl.DateTimeFormat('pt-BR', {
       dateStyle: 'short',
       timeStyle: 'short',
@@ -152,14 +151,13 @@ export class PdfService {
 
     /**
      * ✅ LOGO:
-     * - Para HEADER do Puppeteer, o mais confiável é usar DATA-URL (base64).
-     * - Se PDF_LOGO_URL for http(s), pode falhar no header (e não “espera” rede).
-     * - Então: se for http(s), ainda tentamos usar como está, mas preferimos base64 local.
+     * Para HEADER do Puppeteer, o mais confiável é DATA-URL (base64).
+     * Se PDF_LOGO_URL for http(s), pode falhar no header (não “espera” rede).
+     * Então: preferimos base64 local; se não existir, usamos a env.
      */
     const logoUrlEnv = String(process.env.PDF_LOGO_URL || '').trim();
     let logoDataUrl = '';
 
-    // helper local: tenta ler base64 do assets
     const loadLocalLogo = () => {
       try {
         const logoPath = path.join(process.cwd(), 'assets', 'logo1.png');
@@ -171,21 +169,17 @@ export class PdfService {
     };
 
     if (logoUrlEnv) {
-      // Se já vier data-url, perfeito. Se vier http(s), pode funcionar no corpo, mas no header pode falhar.
-      // Para evitar sumir no header, tentamos cair pra assets/ primeiro se existir.
       const isData = /^data:image\//i.test(logoUrlEnv);
       if (isData) {
         logoDataUrl = logoUrlEnv;
       } else {
-        // tenta base64 local; se não existir, usa a URL mesmo
+        // preferir local para garantir no header
         logoDataUrl = loadLocalLogo() || logoUrlEnv;
       }
     } else {
       logoDataUrl = loadLocalLogo();
       if (!logoDataUrl) {
-        console.warn(
-          '[PDF] Logo não encontrada em assets/logo1.png e PDF_LOGO_URL não definido.',
-        );
+        console.warn('[PDF] Logo não encontrada em assets/logo1.png e PDF_LOGO_URL não definido.');
       }
     }
 
@@ -275,21 +269,33 @@ export class PdfService {
       .join('');
 
     /**
-     * ✅ MARGENS / HEADER OVERLAP (o seu problema #2)
-     * Quando o conteúdo “sobe” e encosta/atravessa o header:
-     * - o headerTemplate está mais “alto” do que a margem top
-     * - ou a margem top está muito pequena
+     * ✅ Ajustes pedidos
      *
-     * Então aqui fixamos:
-     * - header com altura real ~16mm
-     * - margem top maior (~34mm) para sobrar “respiro”
-     * - removemos qualquer coisa que empurre “pro topo” na capa e centralizamos
+     * (1) Garantir que o CONTEÚDO nunca invada header/footer:
+     *     - header/footer têm altura fixa (mm)
+     *     - margens top/bottom sempre MAIORES que a altura deles + uma folga
+     *
+     * (2) Margens laterais 1,5cm ou 2cm:
+     *     - default: 20mm (2cm) e você pode reduzir para 15mm via env.
      */
-    const PDF_MARGIN_TOP = String(process.env.PDF_MARGIN_TOP || '34mm');
-    const PDF_MARGIN_BOTTOM = String(process.env.PDF_MARGIN_BOTTOM || '20mm');
-    const PDF_MARGIN_LR = String(process.env.PDF_MARGIN_LR || '12mm');
+    const HEADER_MM = Number(process.env.PDF_HEADER_MM || 16); // altura do header
+    const FOOTER_MM = Number(process.env.PDF_FOOTER_MM || 14); // altura do footer
 
-    // ✅ HTML do PDF
+    // folga extra (respiro) para nunca encostar/“sobrepor”
+    const TOP_GAP_MM = Number(process.env.PDF_TOP_GAP_MM || 10);
+    const BOTTOM_GAP_MM = Number(process.env.PDF_BOTTOM_GAP_MM || 8);
+
+    // ✅ margens laterais: default 2cm (recomendado por você)
+    const LR_MM = Number(process.env.PDF_MARGIN_LR_MM || 20);
+
+    // ✅ margem top/bottom calculadas para “blindar” overlap
+    const TOP_MM = Number(process.env.PDF_MARGIN_TOP_MM || HEADER_MM + TOP_GAP_MM + 6); // +6mm “sobra”
+    const BOTTOM_MM = Number(process.env.PDF_MARGIN_BOTTOM_MM || FOOTER_MM + BOTTOM_GAP_MM + 6);
+
+    const marginTop = `${Math.max(TOP_MM, HEADER_MM + 12)}mm`;
+    const marginBottom = `${Math.max(BOTTOM_MM, FOOTER_MM + 10)}mm`;
+    const marginLR = `${Math.max(LR_MM, 15)}mm`; // nunca menos que 1,5cm
+
     const html = `
 <!DOCTYPE html>
 <html lang="pt-BR">
@@ -304,7 +310,6 @@ export class PdfService {
     --soft:#f8fafc;
   }
 
-  /* O recorte de página é controlado pelo Puppeteer (page.pdf margin). */
   @page { size:A4; margin: 0; }
 
   html, body { padding:0; margin:0; }
@@ -312,16 +317,11 @@ export class PdfService {
 
   h2, h3 { margin: 0 0 10px 0; }
   .muted { font-size:12px; color:var(--muted); }
-
   .section { padding: 0; }
 
-  /* ✅ CAPA: centraliza verticalmente dentro da área do conteúdo (não cola no topo) */
+  /* CAPA: centraliza verticalmente dentro da área útil */
   .cover { page-break-after: always; break-after: page; }
-  .coverWrap {
-    min-height: 230mm;              /* “tamanho” estável no A4 */
-    display:flex;
-    align-items:center;
-  }
+  .coverWrap { min-height: 230mm; display:flex; align-items:center; }
   .coverInner { width:100%; }
 
   .brand { display:flex; align-items:center; gap:12px; }
@@ -343,12 +343,7 @@ export class PdfService {
   th { text-align:left; background: var(--soft); color: var(--muted); }
   .cell-title { max-width: 70mm; word-break: break-word; overflow-wrap:anywhere; }
 
-  .taskGrid {
-    display:grid;
-    grid-template-columns: 1fr 140px;
-    gap: 12px;
-    align-items: start;
-  }
+  .taskGrid { display:grid; grid-template-columns: 1fr 140px; gap: 12px; align-items: start; }
   .taskInfo { min-width: 0; }
   .taskChart {
     width: 140px;
@@ -370,19 +365,8 @@ export class PdfService {
     overflow: hidden;
   }
 
-  .essayBox {
-    margin-top:10px;
-    padding:14px;
-    border:1px solid var(--line);
-    border-radius:12px;
-    background:var(--soft);
-  }
-
-  .essayHeader {
-    font-weight: 900;
-    margin-bottom: 8px;
-    font-size: 12px;
-  }
+  .essayBox { margin-top:10px; padding:14px; border:1px solid var(--line); border-radius:12px; background:var(--soft); }
+  .essayHeader { font-weight: 900; margin-bottom: 8px; font-size: 12px; }
 
   .essayContent {
     white-space: pre-wrap;
@@ -395,20 +379,8 @@ export class PdfService {
     page-break-inside: auto;
   }
 
-  .kpiRow{
-    display:flex;
-    gap:8px;
-    flex-wrap:wrap;
-    margin-top:10px;
-  }
-  .kpi{
-    border:1px solid var(--line);
-    border-radius:999px;
-    padding:6px 10px;
-    font-size:12px;
-    background:#fff;
-    color: var(--muted);
-  }
+  .kpiRow{ display:flex; gap:8px; flex-wrap:wrap; margin-top:10px; }
+  .kpi{ border:1px solid var(--line); border-radius:999px; padding:6px 10px; font-size:12px; background:#fff; color: var(--muted); }
   .kpi b{ color: var(--ink); }
 
   .pageBreakBefore { page-break-before: always; break-before: page; }
@@ -494,8 +466,6 @@ export class PdfService {
 
     try {
       const page = await browser.newPage();
-
-      // Ajuda quando logo é URL remota (e algumas configs CSP)
       await page.setBypassCSP(true);
 
       await page.setContent(html, { waitUntil: 'networkidle0' });
@@ -503,9 +473,9 @@ export class PdfService {
       const headerRoom = safeRoom;
       const headerStudent = safeStudent;
 
-      // ✅ Header “baixo” e com altura real dentro do espaço de margem (evita overlap)
+      // ✅ Header/footer com altura fixa (mm) e “linha” pra você ver claramente a separação
       const headerTemplate = `
-        <div style="width:100%; box-sizing:border-box; padding:0 ${PDF_MARGIN_LR}; height:16mm; display:flex; align-items:center; justify-content:space-between; border-bottom:1px solid rgba(15,23,42,0.10);">
+        <div style="width:100%; box-sizing:border-box; padding:0 ${marginLR}; height:${HEADER_MM}mm; display:flex; align-items:center; justify-content:space-between; border-bottom:1px solid rgba(15,23,42,0.10);">
           <div style="display:flex; align-items:center; gap:8px; min-width:0;">
             ${
               logoDataUrl
@@ -525,7 +495,7 @@ export class PdfService {
       `;
 
       const footerTemplate = `
-        <div style="width:100%; box-sizing:border-box; padding:0 ${PDF_MARGIN_LR}; height:14mm; display:flex; align-items:center; justify-content:space-between; border-top:1px solid rgba(15,23,42,0.10);">
+        <div style="width:100%; box-sizing:border-box; padding:0 ${marginLR}; height:${FOOTER_MM}mm; display:flex; align-items:center; justify-content:space-between; border-top:1px solid rgba(15,23,42,0.10);">
           <span style="color:#64748b; font-size:9px;">© 2026 Mestre Kira. Todos os direitos reservados.</span>
           <span style="color:#64748b; font-size:9px;">
             Página <span class="pageNumber"></span> de <span class="totalPages"></span>
@@ -537,20 +507,20 @@ export class PdfService {
         format: 'A4',
         printBackground: true,
         displayHeaderFooter: true,
-
         headerTemplate,
         footerTemplate,
 
         /**
-         * ✅ MARGENS (principal correção do seu print):
-         * - top maior pra caber header + respiro
-         * - left/right mantém seu layout
+         * ✅ “Blindagem” contra sobreposição:
+         * - O conteúdo só é renderizado DENTRO dessas margens.
+         * - O header/footer ficam FORA (na área da margem).
+         * - Como top/bottom são maiores que header/footer, não tem como invadir.
          */
         margin: {
-          top: PDF_MARGIN_TOP,
-          bottom: PDF_MARGIN_BOTTOM,
-          left: PDF_MARGIN_LR,
-          right: PDF_MARGIN_LR,
+          top: marginTop,
+          bottom: marginBottom,
+          left: marginLR,
+          right: marginLR,
         },
       });
 
