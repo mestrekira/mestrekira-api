@@ -48,8 +48,7 @@ export class PdfController {
 
     // ✅ segurança: estudante só pode gerar o PRÓPRIO PDF
     const user: any = (req as any).user || {};
-    const tokenStudentId =
-      String(user.sub || user.userId || user.id || '').trim();
+    const tokenStudentId = String(user.sub || user.userId || user.id || '').trim();
 
     if (!tokenStudentId) {
       throw new ForbiddenException('Token inválido.');
@@ -84,11 +83,35 @@ export class PdfController {
       tasks: tasksArr as any,
     });
 
+    // ---------- headers robustos ----------
+    // Nome “bonito” sem quebrar em Windows/Chrome
+    const safeBase = `desempenho-${sid}`; // simples e seguro
+    const fileName = `${safeBase}.pdf`;
+
+    // RFC 5987 (permite unicode corretamente)
+    const fileNameStar = `UTF-8''${encodeURIComponent(fileName)}`;
+
+    res.status(200);
+
     res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Length', Buffer.byteLength(pdfBuffer));
+
+    // download + nome
     res.setHeader(
       'Content-Disposition',
-      `attachment; filename="desempenho-${sid}.pdf"`,
+      `attachment; filename="${fileName}"; filename*=${fileNameStar}`,
     );
-    res.send(pdfBuffer);
+
+    // evita cache quebrando “PDF antigo”
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
+
+    // CORS: permite que o frontend (fetch) leia Content-Disposition
+    // (se seu backend está em domínio diferente do front)
+    res.setHeader('Access-Control-Expose-Headers', 'Content-Disposition, Content-Length');
+
+    // importante: encerra corretamente
+    return res.end(pdfBuffer);
   }
 }
