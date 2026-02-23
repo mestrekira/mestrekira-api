@@ -1,6 +1,6 @@
 import { Entity, PrimaryGeneratedColumn, Column, Index } from 'typeorm';
 
-@Entity({ name: 'room_entity' }) // <- coloquei nome explícito pra evitar surpresas
+@Entity({ name: 'room_entity' })
 export class RoomEntity {
   @PrimaryGeneratedColumn('uuid')
   id: string;
@@ -9,9 +9,9 @@ export class RoomEntity {
   name: string;
 
   /**
-   * Continua existindo e continua sendo o “professor responsável”:
-   * - Sala do professor: professorId = dono
-   * - Sala da escola: professorId = professor responsável da sala (gerenciado)
+   * Mantido por compatibilidade:
+   * - Sala do professor: professorId = dono (professor individual)
+   * - Sala da escola: professorId = professor responsável (gerenciado)
    */
   @Column({ type: 'uuid' })
   professorId: string;
@@ -20,9 +20,9 @@ export class RoomEntity {
   code: string;
 
   /**
-   * Novo: quem “é o dono administrativo” da sala
-   * - 'PROFESSOR' (sala criada por professor)
-   * - 'SCHOOL'    (sala criada pela escola)
+   * Novo: quem é o "dono administrativo" da sala
+   * - 'PROFESSOR' (criada por professor)
+   * - 'SCHOOL' (criada pela escola)
    */
   @Column({ type: 'text', default: 'PROFESSOR' })
   ownerType: string; // 'PROFESSOR' | 'SCHOOL'
@@ -35,7 +35,7 @@ export class RoomEntity {
   schoolId: string | null;
 
   /**
-   * Opcional: snapshot do nome do professor no momento da criação pela escola
+   * Opcional: snapshot do nome do professor no momento da criação (útil no painel escola)
    */
   @Column({ type: 'text', nullable: true })
   teacherNameSnapshot: string | null;
