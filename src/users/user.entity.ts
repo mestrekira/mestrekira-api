@@ -7,7 +7,7 @@ import {
   Index,
 } from 'typeorm';
 
-@Entity({ name: 'user_entity' })
+@Entity({ name: 'user_entity' }) // use o nome real da sua tabela se for diferente
 @Index(['email'], { unique: true })
 export class UserEntity {
   // ================================
@@ -34,16 +34,16 @@ export class UserEntity {
    * - 'school'
    */
   @Column({ type: 'text', default: 'student' })
-  role: string;
+  role: string; // 'student' | 'professor' | 'school'
 
   // ================================
-  // 🔹 Novos campos: Escola / Professor gerenciado / Billing / Limites
+  // 🔹 Novos campos: Escola / Professor gerenciado / Billing / Preparação futura
   // ================================
 
   /**
-   * Para professores:
-   * - 'INDIVIDUAL' (paga futuramente)
-   * - 'SCHOOL' (gerenciado por escola, não paga)
+   * Para professor:
+   * - 'INDIVIDUAL' (professor normal)
+   * - 'SCHOOL' (professor gerenciado por escola)
    * null para student/school
    */
   @Column({ type: 'text', nullable: true })
@@ -63,8 +63,8 @@ export class UserEntity {
   mustChangePassword: boolean;
 
   /**
-   * “Mostra grátis” do professor individual (primeiro acesso):
-   * quando true, limite por sala fica 25
+   * Estrutura para “mostra grátis”/limites futuros sem refatorar.
+   * (Neste ano você NÃO vai aplicar limite reduzido; manter false por padrão.)
    */
   @Column({ type: 'boolean', default: false })
   trialMode: boolean;
@@ -75,6 +75,9 @@ export class UserEntity {
   @Column({ type: 'text', nullable: true })
   paymentCustomerId: string | null;
 
+  /**
+   * (Opcional) Ativar/desativar conta sem deletar
+   */
   @Column({ type: 'boolean', default: true })
   isActive: boolean;
 
