@@ -7,13 +7,12 @@ import {
   Index,
 } from 'typeorm';
 
-@Entity({ name: 'user_entity' }) // use o nome real da sua tabela se for diferente
+@Entity({ name: 'user_entity' })
 @Index(['email'], { unique: true })
 export class UserEntity {
   // ================================
   // 🔹 Identificação básica
   // ================================
-
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
@@ -27,64 +26,50 @@ export class UserEntity {
   password: string;
 
   /**
-   * Roles atuais:
-   * - 'student'
-   * - 'professor'
-   * Novo:
-   * - 'school'
+   * ✅ agora aceita: 'student' | 'professor' | 'school'
+   * (mantém default student para não quebrar usuários antigos)
    */
   @Column({ type: 'text', default: 'student' })
-  role: string; // 'student' | 'professor' | 'school'
+  role: string;
 
   // ================================
-  // 🔹 Novos campos: Escola / Professor gerenciado / Billing / Preparação futura
+  // 🔹 Perfil escolar / professor gerenciado
   // ================================
-
   /**
    * Para professor:
-   * - 'INDIVIDUAL' (professor normal)
-   * - 'SCHOOL' (professor gerenciado por escola)
-   * null para student/school
+   * - INDIVIDUAL = professor normal
+   * - SCHOOL = professor cadastrado pela escola
    */
   @Column({ type: 'text', nullable: true })
   professorType: string | null; // 'INDIVIDUAL' | 'SCHOOL'
 
   /**
-   * Para professor gerenciado por escola:
-   * aponta para o ID do usuário escola (role='school')
+   * Se professor for gerenciado por escola, aponta para a escola (User role=school)
    */
   @Column({ type: 'uuid', nullable: true })
   schoolId: string | null;
 
   /**
-   * Professor cadastrado pela escola deve trocar senha no primeiro acesso
+   * Professor cadastrado por escola deve trocar senha no primeiro acesso
    */
   @Column({ type: 'boolean', default: false })
   mustChangePassword: boolean;
 
   /**
-   * Estrutura para “mostra grátis”/limites futuros sem refatorar.
-   * (Neste ano você NÃO vai aplicar limite reduzido; manter false por padrão.)
+   * Placeholder para ativar pagamento depois (sem mudar arquitetura)
    */
   @Column({ type: 'boolean', default: false })
   trialMode: boolean;
 
-  /**
-   * Base para cobrança futura (Stripe/MercadoPago/etc.)
-   */
-  @Column({ type: 'text', nullable: true })
-  paymentCustomerId: string | null;
-
-  /**
-   * (Opcional) Ativar/desativar conta sem deletar
-   */
   @Column({ type: 'boolean', default: true })
   isActive: boolean;
+
+  @Column({ type: 'text', nullable: true })
+  paymentCustomerId: string | null;
 
   // ================================
   // 🔹 Controle de inatividade
   // ================================
-
   @Column({ type: 'timestamptz', nullable: true })
   inactivityWarnedAt: Date | null;
 
@@ -94,14 +79,12 @@ export class UserEntity {
   // ================================
   // 🔹 Preferências de e-mail
   // ================================
-
   @Column({ type: 'boolean', default: false })
   emailOptOut: boolean;
 
   // ================================
   // 🔹 Verificação de e-mail
   // ================================
-
   @Column({ type: 'boolean', default: false })
   emailVerified: boolean;
 
@@ -117,7 +100,6 @@ export class UserEntity {
   // ================================
   // 🔹 Recuperação de senha
   // ================================
-
   @Column({ type: 'text', nullable: true })
   passwordResetTokenHash: string | null;
 
@@ -127,7 +109,6 @@ export class UserEntity {
   // ================================
   // 🔹 Datas automáticas
   // ================================
-
   @CreateDateColumn({ type: 'timestamptz' })
   createdAt: Date;
 
