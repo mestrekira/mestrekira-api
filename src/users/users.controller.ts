@@ -42,7 +42,7 @@ export class UsersController {
     return this.auth.registerStudent(name, email, password);
   }
 
-  // ✅ LOGIN agora bloqueia se não verificado
+  // ✅ LOGIN agora bloqueia se não verificado (controlado no AuthService)
   @Post('login')
   async login(@Body('email') email: string, @Body('password') password: string) {
     return this.auth.login(email, password);
