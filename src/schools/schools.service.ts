@@ -41,6 +41,13 @@ export class SchoolsService {
     );
   }
 
+  /**
+   * Escola cria sala + cria/garante professor gerenciado.
+   * Regras:
+   * - limite 10 salas por escola
+   * - 1 sala por professor (por escola)
+   * - se existir professor INDIVIDUAL com email, bloqueia
+   */
   async createRoomAsSchool(
     schoolId: string,
     body: { roomName: string; teacherName: string; teacherEmail: string },
@@ -59,6 +66,7 @@ export class SchoolsService {
       throw new BadRequestException('teacherEmail inválido.');
     }
 
+    // escola existe e é school?
     const school = await this.userRepo.findOne({ where: { id: sid } });
     if (!school) throw new NotFoundException('Escola não encontrada.');
     if (String(school.role || '').toLowerCase() !== 'school') {
@@ -83,18 +91,18 @@ export class SchoolsService {
 
     if (existing) {
       const role = String(existing.role || '').toLowerCase();
-      const pType = String((existing as any).professorType || '').toUpperCase();
+      const pType = String(existing.professorType || '').toUpperCase();
 
-      // bloquear se for professor individual
+      // se já existe professor individual, bloquear
       if (role === 'professor' && (pType === '' || pType === 'INDIVIDUAL')) {
         throw new BadRequestException(
           'Já existe um professor individual com este e-mail. Não é possível cadastrar pela escola.',
         );
       }
 
-      // se for professor SCHOOL, precisa ser da mesma escola
+      // se for professor SCHOOL, tem que ser da mesma escola
       if (role === 'professor' && pType === 'SCHOOL') {
-        const linkedSchoolId = (existing as any).schoolId;
+        const linkedSchoolId = existing.schoolId;
         if (linkedSchoolId && String(linkedSchoolId) !== sid) {
           throw new BadRequestException(
             'Este professor já está vinculado a outra escola.',
@@ -115,11 +123,11 @@ export class SchoolsService {
     if (existing) {
       teacher = existing;
     } else {
-      // senha temporária
+      // cria professor gerenciado com senha temporária
       const tempPassword = Math.random().toString(36).slice(2) + 'A1!';
       const hash = await bcrypt.hash(tempPassword, 10);
 
-      const created = this.userRepo.create({
+      const created: UserEntity = this.userRepo.create({
         name: teacherName,
         email: teacherEmail,
         password: hash,
@@ -134,12 +142,14 @@ export class SchoolsService {
         // decisão prática: professor gerenciado já nasce verificado
         emailVerified: true,
         emailVerifiedAt: new Date(),
-      } as any);
+        emailVerifyTokenHash: null,
+        emailVerifyTokenExpiresAt: null,
+      });
 
-      teacher = (await this.userRepo.save(created)) as UserEntity;
+      teacher = await this.userRepo.save(created);
     }
 
-    // regra: 1 sala por professor por escola
+    // regra 1 sala por professor (por escola)
     const already = await this.roomRepo.findOne({
       where: {
         ownerType: 'SCHOOL',
@@ -156,19 +166,18 @@ export class SchoolsService {
 
     const code = await this.generateUniqueRoomCode();
 
-    const roomCreated = this.roomRepo.create({
+    const roomCreated: RoomEntity = this.roomRepo.create({
       name: roomName,
-      professorId: teacher.id, // compat com seu sistema atual
-
+      professorId: teacher.id,
       code,
 
       ownerType: 'SCHOOL',
       schoolId: sid,
       teacherId: teacher.id,
       teacherNameSnapshot: teacherName,
-    } as any);
+    });
 
-    const saved = (await this.roomRepo.save(roomCreated)) as RoomEntity;
+    const saved = await this.roomRepo.save(roomCreated);
 
     return {
       ok: true,
@@ -176,18 +185,19 @@ export class SchoolsService {
         id: saved.id,
         name: saved.name,
         code: saved.code,
-        ownerType: (saved as any).ownerType,
-        schoolId: (saved as any).schoolId,
-        teacherId: (saved as any).teacherId,
-        teacherName: (saved as any).teacherNameSnapshot,
+        ownerType: saved.ownerType,
+        schoolId: saved.schoolId,
+        teacherId: saved.teacherId,
+        teacherName: saved.teacherNameSnapshot,
         professorId: saved.professorId,
       },
       teacher: {
         id: teacher.id,
         name: teacher.name,
         email: teacher.email,
-        professorType: (teacher as any).professorType ?? null,
-        mustChangePassword: !!(teacher as any).mustChangePassword,
+        professorType: teacher.professorType ?? null,
+        mustChangePassword: !!teacher.mustChangePassword,
+        schoolId: teacher.schoolId ?? null,
       },
     };
   }
@@ -200,7 +210,7 @@ export class SchoolsService {
       order: { name: 'ASC' } as any,
     });
 
-    return rooms.map((r: any) => ({
+    return rooms.map((r) => ({
       id: r.id,
       name: r.name,
       code: r.code,
