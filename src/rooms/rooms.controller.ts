@@ -5,6 +5,13 @@ import { RoomsService } from './rooms.service';
 export class RoomsController {
   constructor(private readonly roomsService: RoomsService) {}
 
+  /**
+   * Criação de sala (fluxo atual do professor).
+   * ✅ Regras adicionadas no service:
+   * - professor deve existir e ter role='professor'
+   * - professor gerenciado por escola não cria sala por aqui
+   * - limite de 10 salas por professor individual (inclui legado sem professorType)
+   */
   @Post()
   create(@Body('name') name: string, @Body('professorId') professorId: string) {
     return this.roomsService.create(name, professorId);
