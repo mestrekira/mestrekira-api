@@ -390,4 +390,41 @@ async registerSchool(name: string, email: string, password: string) {
 
     return { ok: true, message: 'Senha redefinida com sucesso.' };
   }
+
+  async firstPassword(userId: string, newPassword: string) {
+  const id = String(userId || '').trim();
+  const pass = String(newPassword || '');
+
+  if (!id) throw new BadRequestException('Sessão inválida.');
+  if (!pass || pass.length < 8) {
+    throw new BadRequestException('Senha deve ter no mínimo 8 caracteres.');
+  }
+
+  const user = await this.userRepo.findOne({ where: { id } });
+  if (!user) throw new NotFoundException('Usuário não encontrado.');
+
+  const role = String(user.role || '').toLowerCase();
+  if (role !== 'professor') {
+    throw new BadRequestException('Apenas professores usam este endpoint.');
+  }
+
+  const pType = String(user.professorType || '').toUpperCase();
+  if (pType !== 'SCHOOL') {
+    throw new BadRequestException('Apenas professores da escola usam este endpoint.');
+  }
+
+  if (!user.mustChangePassword) {
+    return { ok: true, message: 'Senha já estava atualizada.' };
+  }
+
+  const bcrypt = await import('bcrypt');
+  const hash = await bcrypt.hash(pass, 10);
+
+  await this.userRepo.update(
+    { id: user.id },
+    { password: hash, mustChangePassword: false },
+  );
+
+  return { ok: true, message: 'Senha definida com sucesso.' };
+}
 }
