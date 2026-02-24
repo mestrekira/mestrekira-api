@@ -4,8 +4,17 @@ import { ExtractJwt, Strategy } from 'passport-jwt';
 
 type JwtPayload = {
   sub: string;   // id do usuário
-  role: string;  // student | professor
+  role: string;  // student | professor | school
 };
+
+function normalizeRole(role: any): 'student' | 'professor' | 'school' {
+  const r = String(role || '').trim().toLowerCase();
+  if (r === 'student' || r === 'aluno') return 'student';
+  if (r === 'professor' || r === 'teacher') return 'professor';
+  if (r === 'school' || r === 'escola') return 'school';
+  // fallback seguro
+  return 'student';
+}
 
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
@@ -26,7 +35,7 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
 
     return {
       id: String(payload.sub),
-      role: payload.role,
+      role: normalizeRole(payload.role),
     };
   }
 }
