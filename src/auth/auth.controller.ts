@@ -105,7 +105,13 @@ export class AuthController {
       return;
     }
   }
-
+  
+@Post('first-password')
+@UseGuards(AuthGuard('jwt'))
+firstPassword(@Req() req: any, @Body('password') password: string) {
+  const userId = String(req?.user?.id || '').trim();
+  return this.auth.firstPassword(userId, password);
+}
   /**
    * ✅ Reenviar verificação
    */
@@ -159,4 +165,5 @@ export class AuthController {
   ) {
     return this.auth.resetPassword(token, newPassword);
   }
+  
 }
