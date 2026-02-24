@@ -12,7 +12,6 @@ import { UserEntity } from '../users/user.entity';
 
 @Injectable()
 export class EnrollmentsService {
-  // ✅ limite atual (este ano: igual ao pago)
   private readonly LIMIT_MAX_STUDENTS_PER_ROOM = 50;
 
   constructor(
@@ -26,39 +25,19 @@ export class EnrollmentsService {
     private readonly userRepo: Repository<UserEntity>,
   ) {}
 
-  private norm(s: any) {
-    return String(s || '').trim();
-  }
-
-  private roleLower(role: any) {
-    return String(role || '').trim().toLowerCase();
-  }
-
-  private async ensureRoomHasCapacity(roomId: string) {
-    const count = await this.enrollmentRepo.count({ where: { roomId } });
-    if (count >= this.LIMIT_MAX_STUDENTS_PER_ROOM) {
-      throw new BadRequestException(
-        `Limite atingido: esta sala já possui ${this.LIMIT_MAX_STUDENTS_PER_ROOM} estudantes.`,
-      );
-    }
-  }
-
   async enroll(roomId: string, studentId: string) {
-    const rId = this.norm(roomId);
-    const sId = this.norm(studentId);
+    const rId = (roomId || '').trim();
+    const sId = (studentId || '').trim();
 
     if (!rId || !sId) {
       throw new BadRequestException('roomId e studentId são obrigatórios');
     }
 
-    // já está matriculado?
     const exists = await this.enrollmentRepo.findOne({
       where: { roomId: rId, studentId: sId },
     });
-    if (exists) return exists;
 
-    // ✅ limite de 50 por sala (aplicar antes de salvar)
-    await this.ensureRoomHasCapacity(rId);
+    if (exists) return exists;
 
     const enrollment = this.enrollmentRepo.create({
       roomId: rId,
@@ -68,47 +47,48 @@ export class EnrollmentsService {
     return this.enrollmentRepo.save(enrollment);
   }
 
-  // 🔹 ENTRADA POR CÓDIGO
   async joinByCode(code: string, studentId: string) {
-    const c = this.norm(code).toUpperCase();
-    const sId = this.norm(studentId);
+    const c = (code || '').trim().toUpperCase();
+    const sId = (studentId || '').trim();
 
     if (!c || !sId) {
       throw new BadRequestException('code e studentId são obrigatórios');
     }
 
-    // 1) sala existe?
     const room = await this.roomRepo.findOne({ where: { code: c } });
     if (!room) {
       throw new NotFoundException('Sala não encontrada');
     }
 
-    // 2) aluno existe?
     const student = await this.userRepo.findOne({ where: { id: sId } });
     if (!student) {
       throw new NotFoundException('Aluno não encontrado');
     }
 
-    // 3) garante que é aluno (evita professor entrando como aluno)
-    // ⚠️ Seu sistema usa 'student'/'professor' em minúsculo.
-    const role = this.roleLower(student.role);
+    const role = String(student.role || '').toLowerCase();
     if (role !== 'student') {
       throw new BadRequestException('Somente alunos podem entrar em sala por código');
     }
 
-    // 4) matrícula (com limite)
+    // ✅ limite 50 alunos por sala
+    const current = await this.enrollmentRepo.count({ where: { roomId: room.id } });
+    if (current >= this.LIMIT_MAX_STUDENTS_PER_ROOM) {
+      throw new BadRequestException(
+        `Sala lotada: máximo ${this.LIMIT_MAX_STUDENTS_PER_ROOM} estudantes.`,
+      );
+    }
+
     return this.enroll(room.id, sId);
   }
 
-  // ✅ listar salas do aluno (retorno leve)
   async findRoomsByStudent(studentId: string) {
-    const sId = this.norm(studentId);
+    const sId = (studentId || '').trim();
     if (!sId) throw new BadRequestException('studentId é obrigatório');
 
     const student = await this.userRepo.findOne({ where: { id: sId } });
     if (!student) throw new NotFoundException('Aluno não encontrado');
 
-    const role = this.roleLower(student.role);
+    const role = String(student.role || '').toLowerCase();
     if (role !== 'student') {
       throw new BadRequestException('Apenas alunos podem listar salas por matrícula');
     }
@@ -128,15 +108,14 @@ export class EnrollmentsService {
       .map((r) => ({
         id: r!.id,
         name: r!.name,
-        code: r!.code, // opcional (pode remover se não usar)
-        professorId: r!.professorId, // opcional
+        code: r!.code,
+        professorId: r!.professorId,
       }));
   }
 
-  // ✅ sair da sala
   async leaveRoom(roomId: string, studentId: string) {
-    const rId = this.norm(roomId);
-    const sId = this.norm(studentId);
+    const rId = (roomId || '').trim();
+    const sId = (studentId || '').trim();
 
     if (!rId || !sId) {
       throw new BadRequestException('roomId e studentId são obrigatórios');
@@ -146,9 +125,8 @@ export class EnrollmentsService {
     return { ok: true };
   }
 
-  // ✅ (opcional) alunos da sala (nome/email)
   async findStudentsByRoom(roomId: string) {
-    const rId = this.norm(roomId);
+    const rId = (roomId || '').trim();
     if (!rId) throw new BadRequestException('roomId é obrigatório');
 
     const enrollments = await this.enrollmentRepo.find({ where: { roomId: rId } });
