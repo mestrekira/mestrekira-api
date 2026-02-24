@@ -9,8 +9,10 @@ import {
   Res,
   UnauthorizedException,
   BadRequestException,
+  UsersGuards,
 } from '@nestjs/common';
 import { AuthService } from './auth.service';
+import { AuthGuard } from '@nestjs/passport';
 import type { Request, Response } from 'express';
 
 @Controller('auth')
