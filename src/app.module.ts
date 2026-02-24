@@ -11,6 +11,7 @@ import { TasksModule } from './tasks/tasks.module';
 import { AnalyticsModule } from './analytics/analytics.module';
 import { CleanupModule } from './cleanup/cleanup.module';
 import { PdfModule } from './pdf/pdf.module';
+import { SchoolsModule } from './schools/schools.module';
 import { AdminModule } from './admin/admin.module';
 
 const hasDbUrl =
@@ -73,9 +74,11 @@ console.log(
     AnalyticsModule,
     CleanupModule,
     PdfModule,
+    SchoolsModule,
     AdminModule,
   ],
 })
 export class AppModule {}
+
 
 
