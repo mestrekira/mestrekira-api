@@ -111,20 +111,6 @@ async registerSchool(name: string, email: string, password: string) {
     message: 'Cadastro da escola criado. Confirme seu e-mail para acessar.',
   };
 }
-  /**
-   * ✅ NOVO: Cadastro de escola
-   * - role='school'
-   * - também exige verificação de e-mail (mesma regra)
-   */
-  async registerSchool(name: string, email: string, password: string) {
-    const created = await this.users.createSchool(name, email, password);
-    await this.requestEmailVerification(created.email);
-
-    return {
-      ...created,
-      message: 'Cadastro criado. Confirme seu e-mail para acessar.',
-    };
-  }
 
   // -----------------------------
   // Login (bloqueia se não verificado) + JWT
