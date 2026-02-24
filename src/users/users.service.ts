@@ -33,7 +33,6 @@ function normalizeEmail(email: any) {
 
 function isBcryptHash(value: any) {
   const v = String(value || '');
-  // bcrypt hashes começam com $2a$, $2b$, $2y$
   return v.startsWith('$2a$') || v.startsWith('$2b$') || v.startsWith('$2y$');
 }
 
@@ -73,27 +72,26 @@ export class UsersService {
     const exists = await this.userRepo.findOne({ where: { email } });
     if (exists) throw new BadRequestException('Este e-mail já está cadastrado.');
 
-    // ✅ bcrypt no cadastro
     const passwordHash = await bcrypt.hash(String(password), 10);
 
-    const user = this.userRepo.create({
+    const user: UserEntity = this.userRepo.create({
       name,
       email,
       password: passwordHash,
       role: 'professor',
 
-      // ✅ este ano: professor individual com limites do pago (10 salas / 50 por sala)
       professorType: 'INDIVIDUAL',
       trialMode: false,
       mustChangePassword: false,
       schoolId: null,
+      isActive: true,
+      paymentCustomerId: null,
 
-      // verificação
       emailVerified: false,
       emailVerifiedAt: null,
       emailVerifyTokenHash: null,
       emailVerifyTokenExpiresAt: null,
-    } as any);
+    });
 
     const saved = await this.userRepo.save(user);
 
@@ -104,9 +102,9 @@ export class UsersService {
       email: saved.email,
       role: normalizeRole(saved.role),
       emailVerified: !!saved.emailVerified,
-      professorType: (saved as any).professorType ?? null,
-      mustChangePassword: !!(saved as any).mustChangePassword,
-      schoolId: (saved as any).schoolId ?? null,
+      professorType: saved.professorType ?? null,
+      mustChangePassword: !!saved.mustChangePassword,
+      schoolId: saved.schoolId ?? null,
     };
   }
 
@@ -122,16 +120,21 @@ export class UsersService {
     const exists = await this.userRepo.findOne({ where: { email } });
     if (exists) throw new BadRequestException('Este e-mail já está cadastrado.');
 
-    // ✅ bcrypt no cadastro
     const passwordHash = await bcrypt.hash(String(password), 10);
 
-    const user = this.userRepo.create({
+    const user: UserEntity = this.userRepo.create({
       name,
       email,
       password: passwordHash,
       role: 'student',
 
-      // verificação
+      professorType: null,
+      trialMode: false,
+      mustChangePassword: false,
+      schoolId: null,
+      isActive: true,
+      paymentCustomerId: null,
+
       emailVerified: false,
       emailVerifiedAt: null,
       emailVerifyTokenHash: null,
@@ -151,12 +154,13 @@ export class UsersService {
   }
 
   /**
-   * ✅ NOVO: Cadastro de escola
+   * ✅ Cadastro de escola
    */
   async createSchool(name: string, email: string, password: string) {
     email = normalizeEmail(email);
 
-    if (!name?.trim()) throw new BadRequestException('Nome da escola é obrigatório.');
+    if (!name?.trim())
+      throw new BadRequestException('Nome da escola é obrigatório.');
     if (!email.includes('@')) throw new BadRequestException('E-mail inválido.');
     if (!password || password.length < 8) {
       throw new BadRequestException('Senha deve ter no mínimo 8 caracteres.');
@@ -167,23 +171,24 @@ export class UsersService {
 
     const passwordHash = await bcrypt.hash(String(password), 10);
 
-    const user = this.userRepo.create({
+    const user: UserEntity = this.userRepo.create({
       name,
       email,
       password: passwordHash,
       role: 'school',
 
-      // school não usa professorType
       professorType: null,
       trialMode: false,
       mustChangePassword: false,
       schoolId: null,
+      isActive: true,
+      paymentCustomerId: null,
 
       emailVerified: false,
       emailVerifiedAt: null,
       emailVerifyTokenHash: null,
       emailVerifyTokenExpiresAt: null,
-    } as any);
+    });
 
     const saved = await this.userRepo.save(user);
 
@@ -209,14 +214,6 @@ export class UsersService {
     return this.userRepo.find();
   }
 
-  /**
-   * ✅ Validação com migração automática:
-   * - Se senha no banco já for bcrypt → compare
-   * - Se ainda for texto puro (legado) → compara direto e, se OK, converte para bcrypt e salva
-   *
-   * ⚠️ Importante: NÃO vamos mais sobrescrever user.role com normalizeRole aqui,
-   * porque isso pode alterar o valor (string) dentro do objeto e gerar inconsistência.
-   */
   async validateUser(email: string, password: string) {
     const user = await this.findByEmail(email);
     if (!user) return null;
@@ -224,17 +221,14 @@ export class UsersService {
     const incoming = String(password || '');
     const stored = String(user.password || '');
 
-    // ✅ Já está em bcrypt
     if (isBcryptHash(stored)) {
       const ok = await bcrypt.compare(incoming, stored);
       if (!ok) return null;
       return user;
     }
 
-    // ✅ Legado (texto puro)
     if (stored !== incoming) return null;
 
-    // ✅ Migra para bcrypt ao logar com sucesso
     const newHash = await bcrypt.hash(incoming, 10);
     await this.userRepo.update({ id: user.id }, { password: newHash });
     user.password = newHash;
@@ -253,10 +247,10 @@ export class UsersService {
       role: normalizeRole(user.role),
       emailVerified: !!user.emailVerified,
 
-      professorType: (user as any).professorType ?? null,
-      mustChangePassword: !!(user as any).mustChangePassword,
-      schoolId: (user as any).schoolId ?? null,
-      isActive: (user as any).isActive ?? true,
+      professorType: user.professorType ?? null,
+      mustChangePassword: !!user.mustChangePassword,
+      schoolId: user.schoolId ?? null,
+      isActive: user.isActive ?? true,
     };
   }
 
@@ -268,7 +262,8 @@ export class UsersService {
 
     if (email) {
       const newEmail = normalizeEmail(email);
-      if (!newEmail.includes('@')) throw new BadRequestException('E-mail inválido.');
+      if (!newEmail.includes('@'))
+        throw new BadRequestException('E-mail inválido.');
 
       const exists = await this.userRepo.findOne({ where: { email: newEmail } });
       if (exists && exists.id !== id) {
@@ -279,7 +274,6 @@ export class UsersService {
         user.email = newEmail;
         emailChanged = true;
 
-        // se trocar e-mail, precisa verificar de novo:
         user.emailVerified = false;
         user.emailVerifiedAt = null;
         user.emailVerifyTokenHash = null;
@@ -293,12 +287,10 @@ export class UsersService {
         throw new BadRequestException('Senha deve ter no mínimo 8 caracteres.');
       }
 
-      // ✅ bcrypt ao atualizar senha
       user.password = await bcrypt.hash(p, 10);
 
-      // ✅ se era professor gerenciado e estava forçando troca, limpa
-      if ((user as any).mustChangePassword) {
-        (user as any).mustChangePassword = false;
+      if (user.mustChangePassword) {
+        user.mustChangePassword = false;
       }
     }
 
@@ -307,9 +299,6 @@ export class UsersService {
     return { ok: true, emailChanged };
   }
 
-  /**
-   * ✅ Exclusão "limpa" com transação (libera armazenamento)
-   */
   async removeUser(id: string) {
     const user = await this.userRepo.findOne({ where: { id } });
     if (!user) throw new NotFoundException('Usuário não encontrado');
@@ -324,12 +313,15 @@ export class UsersService {
         return;
       }
 
-      // professor ou school: remove salas vinculadas (se existirem)
-      const rooms = await manager.find(RoomEntity, { where: { professorId: id } });
+      const rooms = await manager.find(RoomEntity, {
+        where: { professorId: id },
+      });
       const roomIds = rooms.map((r) => r.id);
 
       if (roomIds.length > 0) {
-        const tasks = await manager.find(TaskEntity, { where: { roomId: In(roomIds) } });
+        const tasks = await manager.find(TaskEntity, {
+          where: { roomId: In(roomIds) },
+        });
         const taskIds = tasks.map((t) => t.id);
 
         if (taskIds.length > 0) {
@@ -363,7 +355,8 @@ export class UsersService {
       ? await bcrypt.compare(incoming, stored)
       : stored === incoming;
 
-    if (!ok) throw new BadRequestException('Senha inválida para confirmar exclusão.');
+    if (!ok)
+      throw new BadRequestException('Senha inválida para confirmar exclusão.');
 
     return this.removeUser(id);
   }
