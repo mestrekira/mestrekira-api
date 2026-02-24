@@ -15,19 +15,15 @@ import { TaskEntity } from '../tasks/task.entity';
 
 function normalizeRole(role: any): 'professor' | 'student' | 'school' {
   const r = String(role || '').trim().toLowerCase();
-
-  // seus valores reais no banco (minúsculos)
   if (r === 'professor') return 'professor';
   if (r === 'student') return 'student';
   if (r === 'school' || r === 'escola') return 'school';
 
-  // compat (se algum momento chegar uppercase)
   const up = String(role || '').trim().toUpperCase();
   if (up === 'PROFESSOR' || up === 'TEACHER') return 'professor';
   if (up === 'STUDENT' || up === 'ALUNO') return 'student';
   if (up === 'SCHOOL' || up === 'ESCOLA') return 'school';
 
-  // fallback seguro
   return 'student';
 }
 
@@ -86,7 +82,7 @@ export class UsersService {
       password: passwordHash,
       role: 'professor',
 
-      // ✅ este ano: sem "mostra grátis" restritiva
+      // ✅ este ano: professor individual com limites do pago (10 salas / 50 por sala)
       professorType: 'INDIVIDUAL',
       trialMode: false,
       mustChangePassword: false,
@@ -108,8 +104,6 @@ export class UsersService {
       email: saved.email,
       role: normalizeRole(saved.role),
       emailVerified: !!saved.emailVerified,
-
-      // ✅ extras úteis no front
       professorType: (saved as any).professorType ?? null,
       mustChangePassword: !!(saved as any).mustChangePassword,
       schoolId: (saved as any).schoolId ?? null,
@@ -156,6 +150,53 @@ export class UsersService {
     };
   }
 
+  /**
+   * ✅ NOVO: Cadastro de escola
+   */
+  async createSchool(name: string, email: string, password: string) {
+    email = normalizeEmail(email);
+
+    if (!name?.trim()) throw new BadRequestException('Nome da escola é obrigatório.');
+    if (!email.includes('@')) throw new BadRequestException('E-mail inválido.');
+    if (!password || password.length < 8) {
+      throw new BadRequestException('Senha deve ter no mínimo 8 caracteres.');
+    }
+
+    const exists = await this.userRepo.findOne({ where: { email } });
+    if (exists) throw new BadRequestException('Este e-mail já está cadastrado.');
+
+    const passwordHash = await bcrypt.hash(String(password), 10);
+
+    const user = this.userRepo.create({
+      name,
+      email,
+      password: passwordHash,
+      role: 'school',
+
+      // school não usa professorType
+      professorType: null,
+      trialMode: false,
+      mustChangePassword: false,
+      schoolId: null,
+
+      emailVerified: false,
+      emailVerifiedAt: null,
+      emailVerifyTokenHash: null,
+      emailVerifyTokenExpiresAt: null,
+    } as any);
+
+    const saved = await this.userRepo.save(user);
+
+    return {
+      ok: true,
+      id: saved.id,
+      name: saved.name,
+      email: saved.email,
+      role: normalizeRole(saved.role),
+      emailVerified: !!saved.emailVerified,
+    };
+  }
+
   // -----------------------------
   // Busca / Login
   // -----------------------------
@@ -172,6 +213,9 @@ export class UsersService {
    * ✅ Validação com migração automática:
    * - Se senha no banco já for bcrypt → compare
    * - Se ainda for texto puro (legado) → compara direto e, se OK, converte para bcrypt e salva
+   *
+   * ⚠️ Importante: NÃO vamos mais sobrescrever user.role com normalizeRole aqui,
+   * porque isso pode alterar o valor (string) dentro do objeto e gerar inconsistência.
    */
   async validateUser(email: string, password: string) {
     const user = await this.findByEmail(email);
@@ -184,9 +228,6 @@ export class UsersService {
     if (isBcryptHash(stored)) {
       const ok = await bcrypt.compare(incoming, stored);
       if (!ok) return null;
-
-      // ⚠️ mantém compat (alguns lugares podem esperar role normalizado)
-      (user as any).role = normalizeRole(user.role);
       return user;
     }
 
@@ -198,7 +239,6 @@ export class UsersService {
     await this.userRepo.update({ id: user.id }, { password: newHash });
     user.password = newHash;
 
-    (user as any).role = normalizeRole(user.role);
     return user;
   }
 
@@ -213,7 +253,6 @@ export class UsersService {
       role: normalizeRole(user.role),
       emailVerified: !!user.emailVerified,
 
-      // ✅ campos novos (não quebram ninguém e ajudam o front)
       professorType: (user as any).professorType ?? null,
       mustChangePassword: !!(user as any).mustChangePassword,
       schoolId: (user as any).schoolId ?? null,
@@ -265,7 +304,6 @@ export class UsersService {
 
     await this.userRepo.save(user);
 
-    // OBS: se emailChanged=true, quem deve disparar e-mail de verificação é o AuthService
     return { ok: true, emailChanged };
   }
 
