@@ -1,42 +1,38 @@
-import { Entity, PrimaryGeneratedColumn, Column, Index } from 'typeorm';
+import { Entity, PrimaryGeneratedColumn, Column } from 'typeorm';
 
-@Entity({ name: 'room_entity' })
+@Entity()
 export class RoomEntity {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
-  @Column({ type: 'text' })
+  @Column()
   name: string;
 
   /**
-   * Mantido por compatibilidade:
-   * - Sala do professor: professorId = dono (professor individual)
-   * - Sala da escola: professorId = professor responsável (gerenciado)
+   * compatível com o sistema atual:
+   * salas do professor usam professorId
    */
-  @Column({ type: 'uuid' })
+  @Column()
   professorId: string;
 
-  @Column({ type: 'text', unique: true })
+  @Column({ unique: true })
   code: string;
 
-  /**
-   * Novo: quem é o "dono administrativo" da sala
-   * - 'PROFESSOR' (criada por professor)
-   * - 'SCHOOL' (criada pela escola)
-   */
+  // ================================
+  // ✅ Novos campos para Perfil Escolar
+  // ================================
   @Column({ type: 'text', default: 'PROFESSOR' })
   ownerType: string; // 'PROFESSOR' | 'SCHOOL'
 
-  /**
-   * Novo: quando ownerType='SCHOOL', guarda o id do usuário escola (role='school')
-   */
-  @Index()
   @Column({ type: 'uuid', nullable: true })
   schoolId: string | null;
 
   /**
-   * Opcional: snapshot do nome do professor no momento da criação (útil no painel escola)
+   * quando ownerType='SCHOOL', aponta para o professor responsável
    */
+  @Column({ type: 'uuid', nullable: true })
+  teacherId: string | null;
+
   @Column({ type: 'text', nullable: true })
   teacherNameSnapshot: string | null;
 }
