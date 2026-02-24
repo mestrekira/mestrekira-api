@@ -8,6 +8,7 @@ import {
   Req,
   Res,
   UnauthorizedException,
+  BadRequestException,
 } from '@nestjs/common';
 import { AuthService } from './auth.service';
 import type { Request, Response } from 'express';
@@ -17,12 +18,40 @@ export class AuthController {
   constructor(private readonly auth: AuthService) {}
 
   /**
-   * ✅ Login:
+   * ✅ Login (serve para student/professor/school):
    * POST /auth/login
    */
   @Post('login')
   async login(@Body('email') email: string, @Body('password') password: string) {
     return this.auth.login(email, password);
+  }
+
+  /**
+   * ✅ Registro de escola:
+   * POST /auth/register-school
+   * body: { name, email, password }
+   */
+  @Post('register-school')
+  async registerSchool(
+    @Body('name') name: string,
+    @Body('email') email: string,
+    @Body('password') password: string,
+  ) {
+    const n = String(name || '').trim();
+    const e = String(email || '').trim();
+    const p = String(password || '');
+
+    if (!n || !e || !p) {
+      throw new BadRequestException('Preencha nome, e-mail e senha.');
+    }
+    if (!e.includes('@')) {
+      throw new BadRequestException('E-mail inválido.');
+    }
+    if (p.length < 8) {
+      throw new BadRequestException('Senha deve ter no mínimo 8 caracteres.');
+    }
+
+    return this.auth.registerSchool(n, e, p);
   }
 
   /**
@@ -98,13 +127,13 @@ export class AuthController {
   /**
    * ✅ Solicitar redefinição de senha
    */
- @Post('request-password-reset')
-async requestPasswordReset(
-  @Body('email') email: string,
-  @Body('role') role?: string,
-) {
-  return this.auth.requestPasswordReset(email, role);
-}
+  @Post('request-password-reset')
+  async requestPasswordReset(
+    @Body('email') email: string,
+    @Body('role') role?: string,
+  ) {
+    return this.auth.requestPasswordReset(email, role);
+  }
 
   /**
    * ✅ Redefinir senha
