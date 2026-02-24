@@ -18,10 +18,6 @@ import { RolesGuard } from '../auth/roles/roles.guard';
 export class SchoolsController {
   constructor(private readonly schools: SchoolsService) {}
 
-  /**
-   * POST /schools/rooms
-   * body: { roomName, teacherName, teacherEmail }
-   */
   @Post('rooms')
   async createRoom(
     @Req() req: any,
@@ -34,9 +30,6 @@ export class SchoolsController {
     return this.schools.createRoomAsSchool(schoolId, body);
   }
 
-  /**
-   * GET /schools/rooms
-   */
   @Get('rooms')
   async listRooms(@Req() req: any) {
     const schoolId = String(req?.user?.id || '').trim();
