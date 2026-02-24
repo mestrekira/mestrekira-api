@@ -32,7 +32,8 @@ function jwtExpiresIn(): number | StringValue {
 
     JwtModule.register({
       secret:
-        (process.env.JWT_SECRET || '').trim() || 'DEV_ONLY_CHANGE_ME__MESTRE_KIRA',
+        (process.env.JWT_SECRET || '').trim() ||
+        'DEV_ONLY_CHANGE_ME__MESTRE_KIRA',
       signOptions: {
         expiresIn: jwtExpiresIn(),
       },
