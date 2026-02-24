@@ -15,7 +15,6 @@ import { UserEntity } from '../users/user.entity';
 
 @Injectable()
 export class RoomsService {
-  // ✅ limites atuais (este ano: igual ao pago)
   private readonly LIMIT_MAX_ROOMS_PROFESSOR = 10;
 
   constructor(
@@ -35,103 +34,68 @@ export class RoomsService {
     private readonly userRepo: Repository<UserEntity>,
   ) {}
 
-  private normalizeEmail(s: string) {
-    return String(s || '').trim().toLowerCase();
-  }
-
-  private normalizeText(s: string) {
-    return String(s || '').trim();
-  }
-
-  private normalizeRoleLower(role: any) {
-    return String(role || '').trim().toLowerCase();
-  }
-
-  private normalizeProfessorTypeUpper(t: any) {
-    return String(t || '').trim().toUpperCase();
-  }
-
   private async generateUniqueRoomCode(maxAttempts = 12) {
     for (let i = 0; i < maxAttempts; i++) {
       const code = Math.random().toString(36).substring(2, 8).toUpperCase();
       const exists = await this.roomRepo.findOne({ where: { code } });
       if (!exists) return code;
     }
-    // fallback mais longo
-    for (let i = 0; i < maxAttempts; i++) {
-      const code = Math.random().toString(36).substring(2, 10).toUpperCase();
-      const exists = await this.roomRepo.findOne({ where: { code } });
-      if (!exists) return code;
-    }
-    throw new BadRequestException('Não foi possível gerar um código único para a sala.');
+    throw new BadRequestException('Não foi possível gerar um código único.');
   }
 
   /**
-   * Cria sala no fluxo atual do professor.
-   * Regras:
-   * - professorId deve existir e ser role='professor'
-   * - professorType:
-   *    - null (legado) => tratado como INDIVIDUAL
-   *    - 'INDIVIDUAL'  => pode criar com limite
-   *    - 'SCHOOL'      => bloqueado (salas devem ser criadas pela escola)
-   * - limite: 10 salas por professor individual
+   * Criação de sala pelo PROFESSOR (rota /rooms)
+   * - professor individual: limite 10 salas
+   * - professor gerenciado pela escola: bloqueado (cria sala pelo painel da escola)
    */
   async create(name: string, professorId: string) {
-    const n = this.normalizeText(name);
-    const p = this.normalizeText(professorId);
+    const n = (name || '').trim();
+    const p = (professorId || '').trim();
 
     if (!n || !p) {
       throw new BadRequestException('Informe name e professorId.');
     }
 
     const professor = await this.userRepo.findOne({ where: { id: p } });
-    if (!professor) {
-      throw new NotFoundException('Professor não encontrado.');
-    }
+    if (!professor) throw new NotFoundException('Professor não encontrado.');
 
-    const role = this.normalizeRoleLower(professor.role);
+    const role = String(professor.role || '').toLowerCase();
     if (role !== 'professor') {
-      throw new BadRequestException('professorId inválido (usuário não é professor).');
+      throw new ForbiddenException('Apenas professores podem criar salas.');
     }
 
-    // professorType legado => INDIVIDUAL
-    const professorType = this.normalizeProfessorTypeUpper((professor as any).professorType);
-    const effectiveType = professorType || 'INDIVIDUAL';
-
-    // professor gerenciado por escola não cria sala por aqui
-    if (effectiveType === 'SCHOOL') {
+    const pType = String(professor.professorType || 'INDIVIDUAL').toUpperCase();
+    if (pType === 'SCHOOL') {
       throw new ForbiddenException(
-        'Professor cadastrado pela escola não pode criar sala. A sala deve ser criada no painel da escola.',
+        'Professor cadastrado pela escola não pode criar salas por aqui.',
       );
     }
 
-    // ✅ limite de 10 salas por professor individual
-    const currentRooms = await this.roomRepo.count({ where: { professorId: p } });
-    if (currentRooms >= this.LIMIT_MAX_ROOMS_PROFESSOR) {
+    // limite 10 salas por professor individual
+    const count = await this.roomRepo.count({ where: { professorId: p } });
+    if (count >= this.LIMIT_MAX_ROOMS_PROFESSOR) {
       throw new BadRequestException(
-        `Limite atingido: no máximo ${this.LIMIT_MAX_ROOMS_PROFESSOR} salas por professor.`,
+        `Limite atingido: no máximo ${this.LIMIT_MAX_ROOMS_PROFESSOR} salas.`,
       );
     }
 
     const code = await this.generateUniqueRoomCode();
 
-    // ✅ compatível com sua RoomEntity atual + campos novos (se já existirem no banco)
-    const room = this.roomRepo.create({
+    const room: RoomEntity = this.roomRepo.create({
       name: n,
       professorId: p,
       code,
-
-      // novos campos (não quebram se já estiverem na entity)
       ownerType: 'PROFESSOR',
       schoolId: null,
+      teacherId: null,
       teacherNameSnapshot: null,
-    } as any);
+    });
 
     return this.roomRepo.save(room);
   }
 
   async findByProfessor(professorId: string) {
-    const p = this.normalizeText(professorId);
+    const p = (professorId || '').trim();
     if (!p) throw new BadRequestException('professorId é obrigatório.');
     return this.roomRepo.find({ where: { professorId: p } });
   }
@@ -141,7 +105,7 @@ export class RoomsService {
   }
 
   async findById(id: string) {
-    const rid = this.normalizeText(id);
+    const rid = (id || '').trim();
     if (!rid) throw new BadRequestException('id é obrigatório.');
     const room = await this.roomRepo.findOne({ where: { id: rid } });
     if (!room) throw new NotFoundException('Sala não encontrada');
@@ -149,18 +113,13 @@ export class RoomsService {
   }
 
   async findByCode(code: string) {
-    const c = this.normalizeText(code).toUpperCase();
+    const c = (code || '').trim().toUpperCase();
     if (!c) throw new BadRequestException('code é obrigatório.');
     return this.roomRepo.findOne({ where: { code: c } });
   }
 
-  /**
-   * ✅ Lista alunos matriculados (baseado nos enrollments)
-   * - Nunca “some” aluno por falha no join do UserEntity
-   * - Retorna fallback quando usuário não é encontrado
-   */
   async findStudents(roomId: string) {
-    const rid = this.normalizeText(roomId);
+    const rid = (roomId || '').trim();
     if (!rid) throw new BadRequestException('roomId é obrigatório.');
 
     const room = await this.roomRepo.findOne({ where: { id: rid } });
@@ -189,14 +148,9 @@ export class RoomsService {
     });
   }
 
-  /**
-   * ✅ Professor remove aluno da sala:
-   * - remove matrícula
-   * - remove redações do aluno vinculadas às tarefas dessa sala (libera armazenamento)
-   */
   async removeStudent(roomId: string, studentId: string) {
-    const rid = this.normalizeText(roomId);
-    const sid = this.normalizeText(studentId);
+    const rid = (roomId || '').trim();
+    const sid = (studentId || '').trim();
 
     if (!rid || !sid) {
       throw new BadRequestException('roomId e studentId são obrigatórios.');
@@ -213,7 +167,6 @@ export class RoomsService {
       return { ok: true, removed: false };
     }
 
-    // ✅ apaga redações do aluno nas tarefas dessa sala
     const tasks = await this.taskRepo.find({ where: { roomId: rid } });
     const taskIds = tasks.map((t) => t.id);
 
@@ -232,7 +185,7 @@ export class RoomsService {
   }
 
   async overview(roomId: string) {
-    const rid = this.normalizeText(roomId);
+    const rid = (roomId || '').trim();
     if (!rid) throw new BadRequestException('roomId é obrigatório.');
 
     const room = await this.roomRepo.findOne({ where: { id: rid } });
@@ -254,7 +207,7 @@ export class RoomsService {
   }
 
   async withProfessor(roomId: string) {
-    const rid = this.normalizeText(roomId);
+    const rid = (roomId || '').trim();
     if (!rid) throw new BadRequestException('roomId é obrigatório.');
 
     const room = await this.roomRepo.findOne({ where: { id: rid } });
@@ -272,13 +225,8 @@ export class RoomsService {
     };
   }
 
-  /**
-   * ✅ Remove sala:
-   * - apaga redações das tarefas
-   * - apaga tarefas, matrículas e a sala
-   */
   async remove(id: string) {
-    const rid = this.normalizeText(id);
+    const rid = (id || '').trim();
     if (!rid) throw new BadRequestException('id é obrigatório.');
 
     const room = await this.roomRepo.findOne({ where: { id: rid } });
@@ -287,7 +235,6 @@ export class RoomsService {
     const tasks = await this.taskRepo.find({ where: { roomId: rid } });
     const taskIds = tasks.map((t) => t.id);
 
-    // apaga redações de todas as tarefas dessa sala
     if (taskIds.length > 0) {
       await this.essayRepo
         .createQueryBuilder()
@@ -297,7 +244,6 @@ export class RoomsService {
         .execute();
     }
 
-    // apaga tarefas, matrículas e sala
     await this.taskRepo.delete({ roomId: rid });
     await this.enrollmentRepo.delete({ roomId: rid });
     await this.roomRepo.delete(rid);
