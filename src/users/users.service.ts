@@ -13,11 +13,21 @@ import { RoomEntity } from '../rooms/room.entity';
 import { EnrollmentEntity } from '../enrollments/enrollment.entity';
 import { TaskEntity } from '../tasks/task.entity';
 
-function normalizeRole(role: any): 'professor' | 'student' {
-  const r = String(role || '').toLowerCase();
+function normalizeRole(role: any): 'professor' | 'student' | 'school' {
+  const r = String(role || '').trim().toLowerCase();
+
+  // seus valores reais no banco (minúsculos)
   if (r === 'professor') return 'professor';
   if (r === 'student') return 'student';
-  if (String(role).toUpperCase() === 'PROFESSOR') return 'professor';
+  if (r === 'school' || r === 'escola') return 'school';
+
+  // compat (se algum momento chegar uppercase)
+  const up = String(role || '').trim().toUpperCase();
+  if (up === 'PROFESSOR' || up === 'TEACHER') return 'professor';
+  if (up === 'STUDENT' || up === 'ALUNO') return 'student';
+  if (up === 'SCHOOL' || up === 'ESCOLA') return 'school';
+
+  // fallback seguro
   return 'student';
 }
 
@@ -76,12 +86,18 @@ export class UsersService {
       password: passwordHash,
       role: 'professor',
 
+      // ✅ este ano: sem "mostra grátis" restritiva
+      professorType: 'INDIVIDUAL',
+      trialMode: false,
+      mustChangePassword: false,
+      schoolId: null,
+
       // verificação
       emailVerified: false,
       emailVerifiedAt: null,
       emailVerifyTokenHash: null,
       emailVerifyTokenExpiresAt: null,
-    });
+    } as any);
 
     const saved = await this.userRepo.save(user);
 
@@ -92,6 +108,11 @@ export class UsersService {
       email: saved.email,
       role: normalizeRole(saved.role),
       emailVerified: !!saved.emailVerified,
+
+      // ✅ extras úteis no front
+      professorType: (saved as any).professorType ?? null,
+      mustChangePassword: !!(saved as any).mustChangePassword,
+      schoolId: (saved as any).schoolId ?? null,
     };
   }
 
@@ -164,7 +185,8 @@ export class UsersService {
       const ok = await bcrypt.compare(incoming, stored);
       if (!ok) return null;
 
-      user.role = normalizeRole(user.role);
+      // ⚠️ mantém compat (alguns lugares podem esperar role normalizado)
+      (user as any).role = normalizeRole(user.role);
       return user;
     }
 
@@ -176,7 +198,7 @@ export class UsersService {
     await this.userRepo.update({ id: user.id }, { password: newHash });
     user.password = newHash;
 
-    user.role = normalizeRole(user.role);
+    (user as any).role = normalizeRole(user.role);
     return user;
   }
 
@@ -190,6 +212,12 @@ export class UsersService {
       email: user.email,
       role: normalizeRole(user.role),
       emailVerified: !!user.emailVerified,
+
+      // ✅ campos novos (não quebram ninguém e ajudam o front)
+      professorType: (user as any).professorType ?? null,
+      mustChangePassword: !!(user as any).mustChangePassword,
+      schoolId: (user as any).schoolId ?? null,
+      isActive: (user as any).isActive ?? true,
     };
   }
 
@@ -228,6 +256,11 @@ export class UsersService {
 
       // ✅ bcrypt ao atualizar senha
       user.password = await bcrypt.hash(p, 10);
+
+      // ✅ se era professor gerenciado e estava forçando troca, limpa
+      if ((user as any).mustChangePassword) {
+        (user as any).mustChangePassword = false;
+      }
     }
 
     await this.userRepo.save(user);
@@ -253,6 +286,7 @@ export class UsersService {
         return;
       }
 
+      // professor ou school: remove salas vinculadas (se existirem)
       const rooms = await manager.find(RoomEntity, { where: { professorId: id } });
       const roomIds = rooms.map((r) => r.id);
 
@@ -281,19 +315,18 @@ export class UsersService {
   }
 
   async removeUserWithPassword(id: string, password: string) {
-  const user = await this.userRepo.findOne({ where: { id } });
-  if (!user) throw new NotFoundException('Usuário não encontrado');
+    const user = await this.userRepo.findOne({ where: { id } });
+    if (!user) throw new NotFoundException('Usuário não encontrado');
 
-  const stored = String(user.password || '');
-  const incoming = String(password || '');
+    const stored = String(user.password || '');
+    const incoming = String(password || '');
 
-  const ok = isBcryptHash(stored)
-    ? await bcrypt.compare(incoming, stored)
-    : stored === incoming;
+    const ok = isBcryptHash(stored)
+      ? await bcrypt.compare(incoming, stored)
+      : stored === incoming;
 
-  if (!ok) throw new BadRequestException('Senha inválida para confirmar exclusão.');
+    if (!ok) throw new BadRequestException('Senha inválida para confirmar exclusão.');
 
-  return this.removeUser(id);
+    return this.removeUser(id);
+  }
 }
-}
-
