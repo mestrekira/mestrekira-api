@@ -30,15 +30,18 @@ export class AuthController {
    * ✅ Registro de escola:
    * POST /auth/register-school
    * body: { name, email, password }
+   *
+   * (compat opcional) aceita também schoolName
    */
   @Post('register-school')
   async registerSchool(
     @Body('name') name: string,
+    @Body('schoolName') schoolName: string,
     @Body('email') email: string,
     @Body('password') password: string,
   ) {
-    const n = String(name || '').trim();
-    const e = String(email || '').trim();
+    const n = String(name || schoolName || '').trim();
+    const e = String(email || '').trim().toLowerCase();
     const p = String(password || '');
 
     if (!n || !e || !p) {
@@ -92,8 +95,9 @@ export class AuthController {
           .slice(0, 200)
           .trim();
 
-      const redirectUrl =
-        `${web}/verificar-email.html?ok=0&msg=${encodeURIComponent(msg)}`;
+      const redirectUrl = `${web}/verificar-email.html?ok=0&msg=${encodeURIComponent(
+        msg,
+      )}`;
 
       res.redirect(302, redirectUrl);
       return;
@@ -105,7 +109,11 @@ export class AuthController {
    */
   @Post('request-verify')
   async requestVerify(@Body('email') email: string) {
-    return this.auth.requestEmailVerification(email);
+    const e = String(email || '').trim().toLowerCase();
+    if (!e || !e.includes('@')) {
+      throw new BadRequestException('E-mail inválido.');
+    }
+    return this.auth.requestEmailVerification(e);
   }
 
   /**
@@ -132,7 +140,11 @@ export class AuthController {
     @Body('email') email: string,
     @Body('role') role?: string,
   ) {
-    return this.auth.requestPasswordReset(email, role);
+    const e = String(email || '').trim().toLowerCase();
+    if (!e || !e.includes('@')) {
+      throw new BadRequestException('E-mail inválido.');
+    }
+    return this.auth.requestPasswordReset(e, role);
   }
 
   /**
