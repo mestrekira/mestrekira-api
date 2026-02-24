@@ -7,17 +7,33 @@
   "license": "UNLICENSED",
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
+
     "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\"",
+
     "start": "node dist/main",
     "start:dev": "nest start --watch",
     "start:debug": "nest start --debug --watch",
-    "start:prod": "node dist/main",
+
+    // 🔒 Produção agora roda migration antes de subir
+    "start:prod": "npm run migration:run && node dist/main",
+
     "lint": "eslint \"{src,apps,libs,test}/**/*.ts\" --fix",
+
     "test": "jest",
     "test:watch": "jest --watch",
     "test:cov": "jest --coverage",
     "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
-    "test:e2e": "jest --config ./test/jest-e2e.json"
+    "test:e2e": "jest --config ./test/jest-e2e.json",
+
+    // ================================
+    // ✅ TYPEORM MIGRATIONS (OFICIAL)
+    // ================================
+    "typeorm": "typeorm-ts-node-commonjs -d src/data-source.ts",
+
+    "migration:generate": "npm run typeorm -- migration:generate src/migrations/AutoMigration",
+    "migration:create": "npm run typeorm -- migration:create src/migrations/ManualMigration",
+    "migration:run": "npm run build && npm run typeorm -- migration:run",
+    "migration:revert": "npm run build && npm run typeorm -- migration:revert"
   },
   "dependencies": {
     "@nestjs/common": "^11.0.1",
@@ -63,7 +79,8 @@
     "ts-node": "^10.9.2",
     "tsconfig-paths": "^4.2.0",
     "typescript": "^5.7.3",
-    "typescript-eslint": "^8.20.0"
+    "typescript-eslint": "^8.20.0",
+    "typeorm-ts-node-commonjs": "^0.3.20"
   },
   "jest": {
     "moduleFileExtensions": ["js", "json", "ts"],
