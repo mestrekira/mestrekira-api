@@ -63,6 +63,10 @@ export class AuthService {
     return crypto.randomBytes(32).toString('base64url');
   }
 
+  private roleLower(role: any) {
+    return String(role || '').trim().toLowerCase();
+  }
+
   private async getUserByEmailOrThrow(email: string) {
     const normalized = this.normalizeEmail(email);
     if (!normalized || !normalized.includes('@')) {
@@ -98,6 +102,21 @@ export class AuthService {
     };
   }
 
+  /**
+   * ✅ NOVO: Cadastro de escola
+   * - role='school'
+   * - também exige verificação de e-mail (mesma regra)
+   */
+  async registerSchool(name: string, email: string, password: string) {
+    const created = await this.users.createSchool(name, email, password);
+    await this.requestEmailVerification(created.email);
+
+    return {
+      ...created,
+      message: 'Cadastro criado. Confirme seu e-mail para acessar.',
+    };
+  }
+
   // -----------------------------
   // Login (bloqueia se não verificado) + JWT
   // -----------------------------
@@ -116,11 +135,14 @@ export class AuthService {
       };
     }
 
+    const role = this.roleLower((user as any).role || 'student');
+
     const token = await this.jwt.signAsync({
       sub: user.id,
-      role: (user.role || 'student').toLowerCase(),
+      role,
     });
 
+    // ✅ devolve extras para o front (não quebra ninguém que ignore)
     return {
       ok: true,
       message: 'Login realizado.',
@@ -129,7 +151,11 @@ export class AuthService {
         id: user.id,
         name: user.name,
         email: user.email,
-        role: (user.role || '').toLowerCase(),
+        role,
+
+        professorType: (user as any).professorType ?? null,
+        schoolId: (user as any).schoolId ?? null,
+        mustChangePassword: !!(user as any).mustChangePassword,
       },
     };
   }
@@ -312,9 +338,10 @@ export class AuthService {
 
     // ✅ role opcional (para redirecionar para o login correto)
     const r = String(role || '').trim().toLowerCase();
-    const safeRole = r === 'professor' || r === 'student' ? r : '';
+    const safeRole =
+      r === 'professor' || r === 'student' || r === 'school' ? r : '';
 
-    const base = this.getWebUrl(); // já é https://www.mestrekira.com.br/app/frontend
+    const base = this.getWebUrl();
     const resetUrl =
       `${base}/reset-password.html?token=${encodeURIComponent(rawToken)}` +
       (safeRole ? `&role=${encodeURIComponent(safeRole)}` : '');
