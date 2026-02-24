@@ -1,24 +1,21 @@
 import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { PassportStrategy } from '@nestjs/passport';
 import { ExtractJwt, Strategy } from 'passport-jwt';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
+import { UserEntity } from '../users/user.entity';
 
 type JwtPayload = {
-  sub: string;   // id do usuário
-  role: string;  // student | professor | school
+  sub: string;
+  role: string;
 };
-
-function normalizeRole(role: any): 'student' | 'professor' | 'school' {
-  const r = String(role || '').trim().toLowerCase();
-  if (r === 'student' || r === 'aluno') return 'student';
-  if (r === 'professor' || r === 'teacher') return 'professor';
-  if (r === 'school' || r === 'escola') return 'school';
-  // fallback seguro
-  return 'student';
-}
 
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
-  constructor() {
+  constructor(
+    @InjectRepository(UserEntity)
+    private readonly userRepo: Repository<UserEntity>,
+  ) {
     super({
       jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
       ignoreExpiration: false,
@@ -33,9 +30,17 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
       throw new UnauthorizedException('Token inválido.');
     }
 
+    const id = String(payload.sub);
+    const role = String(payload.role || '').toLowerCase();
+
+    const user = await this.userRepo.findOne({ where: { id } });
+
     return {
-      id: String(payload.sub),
-      role: normalizeRole(payload.role),
+      id,
+      role,
+      mustChangePassword: !!user?.mustChangePassword,
+      professorType: user?.professorType ?? null,
+      schoolId: user?.schoolId ?? null,
     };
   }
 }
