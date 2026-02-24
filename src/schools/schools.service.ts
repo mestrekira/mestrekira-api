@@ -36,16 +36,11 @@ export class SchoolsService {
       const exists = await this.roomRepo.findOne({ where: { code } });
       if (!exists) return code;
     }
-    throw new BadRequestException('Não foi possível gerar um código único para a sala.');
+    throw new BadRequestException(
+      'Não foi possível gerar um código único para a sala.',
+    );
   }
 
-  /**
-   * Escola cria sala + cria/garante professor gerenciado.
-   * Regras:
-   * - limite 10 salas por escola
-   * - 1 sala por professor (por escola)
-   * - se existir professor INDIVIDUAL com email, bloqueia
-   */
   async createRoomAsSchool(
     schoolId: string,
     body: { roomName: string; teacherName: string; teacherEmail: string },
@@ -56,40 +51,48 @@ export class SchoolsService {
     const teacherEmail = this.emailNorm(body?.teacherEmail);
 
     if (!roomName || !teacherName || !teacherEmail) {
-      throw new BadRequestException('Informe roomName, teacherName e teacherEmail.');
+      throw new BadRequestException(
+        'Informe roomName, teacherName e teacherEmail.',
+      );
     }
     if (!teacherEmail.includes('@')) {
       throw new BadRequestException('teacherEmail inválido.');
     }
 
-    // escola existe e é school?
     const school = await this.userRepo.findOne({ where: { id: sid } });
     if (!school) throw new NotFoundException('Escola não encontrada.');
     if (String(school.role || '').toLowerCase() !== 'school') {
       throw new BadRequestException('Acesso inválido (não é escola).');
     }
 
-    // limite de salas da escola
-    const currentRooms = await this.roomRepo.count({ where: { ownerType: 'SCHOOL', schoolId: sid } as any });
+    // limite 10 salas por escola
+    const currentRooms = await this.roomRepo.count({
+      where: { ownerType: 'SCHOOL', schoolId: sid } as any,
+    });
+
     if (currentRooms >= this.LIMIT_MAX_ROOMS_PER_SCHOOL) {
-      throw new BadRequestException(`Limite atingido: no máximo ${this.LIMIT_MAX_ROOMS_PER_SCHOOL} salas por escola.`);
+      throw new BadRequestException(
+        `Limite atingido: no máximo ${this.LIMIT_MAX_ROOMS_PER_SCHOOL} salas por escola.`,
+      );
     }
 
-    // cria ou reaproveita professor gerenciado
-    const existing = await this.userRepo.findOne({ where: { email: teacherEmail } });
+    // professor já existe?
+    const existing = await this.userRepo.findOne({
+      where: { email: teacherEmail },
+    });
 
     if (existing) {
       const role = String(existing.role || '').toLowerCase();
       const pType = String((existing as any).professorType || '').toUpperCase();
 
-      // se já existe professor individual, bloquear (sua decisão recomendada)
+      // bloquear se for professor individual
       if (role === 'professor' && (pType === '' || pType === 'INDIVIDUAL')) {
         throw new BadRequestException(
           'Já existe um professor individual com este e-mail. Não é possível cadastrar pela escola.',
         );
       }
 
-      // se for professor SCHOOL, tem que ser da mesma escola
+      // se for professor SCHOOL, precisa ser da mesma escola
       if (role === 'professor' && pType === 'SCHOOL') {
         const linkedSchoolId = (existing as any).schoolId;
         if (linkedSchoolId && String(linkedSchoolId) !== sid) {
@@ -101,7 +104,9 @@ export class SchoolsService {
 
       // se for aluno/escola com esse email, bloquear
       if (role !== 'professor') {
-        throw new BadRequestException('Este e-mail já está em uso por outro tipo de conta.');
+        throw new BadRequestException(
+          'Este e-mail já está em uso por outro tipo de conta.',
+        );
       }
     }
 
@@ -110,40 +115,51 @@ export class SchoolsService {
     if (existing) {
       teacher = existing;
     } else {
-      // cria professor gerenciado com senha temporária
+      // senha temporária
       const tempPassword = Math.random().toString(36).slice(2) + 'A1!';
       const hash = await bcrypt.hash(tempPassword, 10);
 
-      teacher = this.userRepo.create({
+      const created = this.userRepo.create({
         name: teacherName,
         email: teacherEmail,
         password: hash,
         role: 'professor',
+
         professorType: 'SCHOOL',
         schoolId: sid,
         mustChangePassword: true,
         trialMode: false,
         isActive: true,
-        emailVerified: true, // ✅ decisão prática: gerenciado pela escola já entra verificado
+
+        // decisão prática: professor gerenciado já nasce verificado
+        emailVerified: true,
         emailVerifiedAt: new Date(),
       } as any);
 
-      teacher = await this.userRepo.save(teacher);
+      teacher = (await this.userRepo.save(created)) as UserEntity;
     }
 
-    // regra 1 sala por professor (por escola)
+    // regra: 1 sala por professor por escola
     const already = await this.roomRepo.findOne({
-      where: { ownerType: 'SCHOOL', schoolId: sid, teacherId: teacher.id } as any,
+      where: {
+        ownerType: 'SCHOOL',
+        schoolId: sid,
+        teacherId: teacher.id,
+      } as any,
     });
+
     if (already) {
-      throw new BadRequestException('Esta escola já possui uma sala cadastrada para este professor.');
+      throw new BadRequestException(
+        'Esta escola já possui uma sala cadastrada para este professor.',
+      );
     }
 
     const code = await this.generateUniqueRoomCode();
 
-    const room = this.roomRepo.create({
+    const roomCreated = this.roomRepo.create({
       name: roomName,
-      professorId: teacher.id, // mantém compat com seu sistema atual
+      professorId: teacher.id, // compat com seu sistema atual
+
       code,
 
       ownerType: 'SCHOOL',
@@ -152,7 +168,7 @@ export class SchoolsService {
       teacherNameSnapshot: teacherName,
     } as any);
 
-    const saved = await this.roomRepo.save(room);
+    const saved = (await this.roomRepo.save(roomCreated)) as RoomEntity;
 
     return {
       ok: true,
