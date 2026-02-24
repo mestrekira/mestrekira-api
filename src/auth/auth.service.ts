@@ -101,7 +101,16 @@ export class AuthService {
       message: 'Cadastro criado. Confirme seu e-mail para acessar.',
     };
   }
+  
+async registerSchool(name: string, email: string, password: string) {
+  const created = await this.users.createSchool(name, email, password);
+  await this.requestEmailVerification(created.email);
 
+  return {
+    ...created,
+    message: 'Cadastro da escola criado. Confirme seu e-mail para acessar.',
+  };
+}
   /**
    * ✅ NOVO: Cadastro de escola
    * - role='school'
