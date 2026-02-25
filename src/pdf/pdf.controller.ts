@@ -32,6 +32,11 @@ export class PdfController {
     private readonly userRepo: Repository<UserEntity>,
   ) {}
 
+  private norm(v: any) {
+    const s = String(v ?? '').trim();
+    return s && s !== 'undefined' && s !== 'null' ? s : '';
+  }
+
   @Get('student-performance')
   async studentPerformance(
     @Query('roomId') roomId: string,
@@ -39,22 +44,27 @@ export class PdfController {
     @Req() req: Request,
     @Res() res: Response,
   ) {
-    const rid = String(roomId || '').trim();
-    const sid = String(studentId || '').trim();
+    const rid = this.norm(roomId);
+    const sid = this.norm(studentId);
 
     if (!rid || !sid) {
       throw new BadRequestException('roomId e studentId são obrigatórios.');
     }
 
-    // ✅ segurança: estudante só pode gerar o PRÓPRIO PDF
+    // ✅ segurança: somente STUDENT pode gerar PDF (mesmo que o id bata)
     const user: any = (req as any).user || {};
-    const tokenStudentId = String(user.sub || user.userId || user.id || '').trim();
+    const tokenUserId = this.norm(user.id || user.userId || user.sub);
+    const tokenRole = String(user.role || '').toLowerCase();
 
-    if (!tokenStudentId) {
+    if (!tokenUserId) {
       throw new ForbiddenException('Token inválido.');
     }
+    if (tokenRole !== 'student') {
+      throw new ForbiddenException('Apenas estudantes podem gerar este PDF.');
+    }
 
-    if (tokenStudentId !== sid) {
+    // ✅ estudante só pode gerar o PRÓPRIO PDF
+    if (tokenUserId !== sid) {
       throw new ForbiddenException(
         'Você não tem permissão para gerar o PDF de outro estudante.',
       );
@@ -64,11 +74,11 @@ export class PdfController {
     const room = await this.roomsService.findById(rid);
     const roomName = room?.name || `Sala ${rid.slice(0, 6)}…`;
 
-    // ✅ estudante real
+    // ✅ estudante real (opcional; mas útil pro nome)
     const student = await this.userRepo.findOne({ where: { id: sid } });
     const studentName = student?.name || `Estudante ${sid.slice(0, 6)}…`;
 
-    // ✅ pega redações completas (com content)
+    // ✅ pega redações completas (com content) - já valida matrícula no service (bom)
     const essaysArr =
       await this.essaysService.findEssaysWithContentByRoomForStudent(rid, sid);
 
@@ -84,34 +94,31 @@ export class PdfController {
     });
 
     // ---------- headers robustos ----------
-    // Nome “bonito” sem quebrar em Windows/Chrome
-    const safeBase = `desempenho-${sid}`; // simples e seguro
+    const safeBase = `desempenho-${sid}`;
     const fileName = `${safeBase}.pdf`;
-
-    // RFC 5987 (permite unicode corretamente)
     const fileNameStar = `UTF-8''${encodeURIComponent(fileName)}`;
 
     res.status(200);
-
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Length', Buffer.byteLength(pdfBuffer));
 
-    // download + nome
     res.setHeader(
       'Content-Disposition',
       `attachment; filename="${fileName}"; filename*=${fileNameStar}`,
     );
 
-    // evita cache quebrando “PDF antigo”
-    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+    res.setHeader(
+      'Cache-Control',
+      'no-store, no-cache, must-revalidate, proxy-revalidate',
+    );
     res.setHeader('Pragma', 'no-cache');
     res.setHeader('Expires', '0');
 
-    // CORS: permite que o frontend (fetch) leia Content-Disposition
-    // (se seu backend está em domínio diferente do front)
-    res.setHeader('Access-Control-Expose-Headers', 'Content-Disposition, Content-Length');
+    res.setHeader(
+      'Access-Control-Expose-Headers',
+      'Content-Disposition, Content-Length',
+    );
 
-    // importante: encerra corretamente
     return res.end(pdfBuffer);
   }
 }
