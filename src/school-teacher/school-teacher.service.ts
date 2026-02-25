@@ -4,7 +4,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, MoreThan } from 'typeorm';
+import { Repository, MoreThan, IsNull } from 'typeorm';
 import * as crypto from 'crypto';
 import { JwtService } from '@nestjs/jwt';
 
@@ -59,22 +59,26 @@ export class SchoolTeacherService {
       throw new BadRequestException('Professor sem schoolId (vínculo inválido).');
     }
 
-    // reutiliza invite válido (evita spam)
+    // reutiliza invite válido (evita spam) — mas como guardamos só hash,
+    // não dá para reenviar o mesmo código; então a reutilização aqui é opcional.
     const now = new Date();
     const existing = await this.inviteRepo.findOne({
       where: {
         teacherEmail: e,
         schoolId: teacher.schoolId,
-        usedAt: null,
+        usedAt: IsNull(),
         expiresAt: MoreThan(now),
       },
       order: { createdAt: 'DESC' as any },
     });
 
+    // Se existir um invite válido recente, você pode:
+    // - gerar um novo para envio (recomendado), ou
+    // - manter o existente e mandar "gere outro depois"
+    // Aqui: sempre gera novo (mais simples e consistente)
     if (existing) {
-      // Aqui você normalmente enviaria e-mail com o código original.
-      // Como a gente guarda só hash, vamos gerar um novo para envio.
-      // (recomendado: não reutilizar se não tiver o código em claro)
+      // opcional: poderia apagar o antigo para evitar múltiplos válidos
+      // await this.inviteRepo.update({ id: existing.id }, { usedAt: new Date() });
     }
 
     const code = this.newCode6();
@@ -92,15 +96,9 @@ export class SchoolTeacherService {
 
     await this.inviteRepo.save(invite);
 
-    /**
-     * ✅ Envio de e-mail:
-     * aqui você pode integrar com seu MailService.
-     * Para não quebrar build (sem mexer no MailService agora),
-     * retornamos ok e, em dev, você pode logar o code.
-     */
+    // ✅ Em produção você enviaria por e-mail
     const isProd = (process.env.NODE_ENV || '').toLowerCase() === 'production';
     if (!isProd) {
-      // ajuda no teste local
       return { ok: true, message: 'Código gerado (DEV).', code };
     }
 
@@ -138,7 +136,7 @@ export class SchoolTeacherService {
       where: {
         teacherEmail: e,
         schoolId: teacher.schoolId,
-        usedAt: null,
+        usedAt: IsNull(),
         expiresAt: MoreThan(now),
       },
       order: { createdAt: 'DESC' as any },
