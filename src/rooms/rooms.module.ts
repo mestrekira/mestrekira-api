@@ -22,8 +22,7 @@ import { UserEntity } from '../users/user.entity';
   ],
   controllers: [RoomsController],
   providers: [RoomsService],
-  exports: [
-    RoomsService,
-  ],
+  exports: [RoomsService],
 })
 export class RoomsModule {}
+
