@@ -9,7 +9,7 @@ import {
   Res,
   UnauthorizedException,
   BadRequestException,
-  UsersGuards,
+  UseGuards,
 } from '@nestjs/common';
 import { AuthService } from './auth.service';
 import { AuthGuard } from '@nestjs/passport';
