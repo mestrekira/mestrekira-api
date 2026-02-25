@@ -1,9 +1,4 @@
-import {
-  Injectable,
-  BadRequestException,
-  ForbiddenException,
-  NotFoundException,
-} from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 
@@ -25,144 +20,67 @@ export class TasksService {
     private readonly essayRepo: Repository<EssayEntity>,
 
     @InjectRepository(RoomEntity)
-    private readonly roomRepo: Repository<RoomEntity>,
+    private readonly roomRepo: Repository<RoomEntity>, // ✅ index [3] do erro
   ) {}
 
-  private normId(v: any) {
-    const s = String(v || '').trim();
-    return s && s !== 'undefined' && s !== 'null' ? s : '';
-  }
-
-  private async ensureRoom(roomId: string) {
-    const rid = this.normId(roomId);
-    if (!rid) throw new BadRequestException('roomId é obrigatório.');
-    const room = await this.roomRepo.findOne({ where: { id: rid } });
-    if (!room) throw new NotFoundException('Sala não encontrada.');
-    return room;
-  }
-
-  private async ensureTask(taskId: string) {
-    const tid = this.normId(taskId);
-    if (!tid) throw new BadRequestException('taskId/id é obrigatório.');
-    const task = await this.taskRepo.findOne({ where: { id: tid } });
-    if (!task) throw new NotFoundException('Tarefa não encontrada.');
-    return task;
-  }
-
-  /**
-   * ✅ Criar tarefa (professor)
-   * - garante que a sala pertence ao professor
-   */
-  async create(roomId: string, title: string, guidelines: string | undefined, professorId?: string) {
-    const rid = this.normId(roomId);
+  async create(roomId: string, title: string, guidelines?: string) {
+    const r = String(roomId || '').trim();
     const t = String(title || '').trim();
-    const g = guidelines ?? '';
 
-    if (!rid || !t) throw new BadRequestException('roomId e title são obrigatórios.');
+    if (!r || !t) throw new BadRequestException('roomId e title são obrigatórios.');
 
-    const room = await this.ensureRoom(rid);
+    // (opcional, mas recomendado) valida sala existe
+    const room = await this.roomRepo.findOne({ where: { id: r } });
+    if (!room) throw new NotFoundException('Sala não encontrada.');
 
-    // ownership (se professorId informado)
-    const pid = this.normId(professorId);
-    if (pid && String(room.professorId) !== pid) {
-      throw new ForbiddenException('Você não tem permissão para criar tarefa nesta sala.');
-    }
-
-    const task = this.taskRepo.create({ roomId: rid, title: t, guidelines: g });
+    const task = this.taskRepo.create({ roomId: r, title: t, guidelines: guidelines ?? '' });
     return this.taskRepo.save(task);
   }
 
-  /**
-   * ✅ Listar tarefas por sala (professor)
-   * - se professorId vier, valida ownership
-   */
-  async findByRoom(roomId: string, professorId?: string) {
-    const rid = this.normId(roomId);
-    if (!rid) throw new BadRequestException('roomId é obrigatório.');
-
-    const room = await this.ensureRoom(rid);
-
-    const pid = this.normId(professorId);
-    if (pid && String(room.professorId) !== pid) {
-      throw new ForbiddenException('Você não tem permissão para ver tarefas desta sala.');
-    }
-
-    return this.taskRepo.find({
-      where: { roomId: rid },
-      order: { createdAt: 'DESC' as any, id: 'ASC' as any },
-    });
+  async findByRoom(roomId: string) {
+    const r = String(roomId || '').trim();
+    if (!r) throw new BadRequestException('roomId é obrigatório.');
+    return this.taskRepo.find({ where: { roomId: r } });
   }
 
-  /**
-   * ✅ Buscar tarefa por id (professor)
-   * - valida ownership via sala da tarefa
-   */
-  async findById(id: string, professorId?: string) {
-    const task = await this.ensureTask(id);
-
-    const pid = this.normId(professorId);
-    if (pid) {
-      const room = await this.ensureRoom(task.roomId);
-      if (String(room.professorId) !== pid) {
-        throw new ForbiddenException('Você não tem permissão para ver esta tarefa.');
-      }
-    }
-
-    return task;
+  async findById(id: string) {
+    const tid = String(id || '').trim();
+    if (!tid) throw new BadRequestException('id é obrigatório.');
+    return this.taskRepo.findOne({ where: { id: tid } });
   }
 
-  /**
-   * ✅ Listar tarefas por sala para aluno
-   * - exige matrícula
-   */
   async findByRoomForStudent(roomId: string, studentId: string) {
-    const rid = this.normId(roomId);
-    const sid = this.normId(studentId);
-    if (!rid || !sid) throw new BadRequestException('roomId e studentId são obrigatórios.');
+    const r = String(roomId || '').trim();
+    const s = String(studentId || '').trim();
+    if (!r || !s) throw new BadRequestException('roomId e studentId são obrigatórios.');
 
-    await this.ensureRoom(rid);
+    const enrollment = await this.enrollmentRepo.findOne({ where: { roomId: r, studentId: s } });
+    if (!enrollment) throw new BadRequestException('Aluno não matriculado na sala');
 
-    const enrollment = await this.enrollmentRepo.findOne({
-      where: { roomId: rid, studentId: sid },
-    });
-    if (!enrollment) throw new ForbiddenException('Aluno não matriculado na sala.');
-
-    return this.taskRepo.find({
-      where: { roomId: rid },
-      order: { createdAt: 'DESC' as any, id: 'ASC' as any },
-    });
+    return this.taskRepo.find({ where: { roomId: r } });
   }
 
-  /**
-   * ✅ Excluir tarefa (professor)
-   * - valida ownership via sala da tarefa
-   * - apaga redações -> tarefa
-   */
-  async remove(id: string, professorId?: string) {
-    const task = await this.ensureTask(id);
+  // ✅ EXCLUSÃO COMPLETA DA TAREFA: apaga redações -> tarefa
+  async remove(id: string) {
+    const tid = String(id || '').trim();
+    if (!tid) throw new BadRequestException('id é obrigatório.');
 
-    const pid = this.normId(professorId);
-    if (pid) {
-      const room = await this.ensureRoom(task.roomId);
-      if (String(room.professorId) !== pid) {
-        throw new ForbiddenException('Você não tem permissão para excluir esta tarefa.');
-      }
-    }
-
-    await this.essayRepo.delete({ taskId: task.id });
-    await this.taskRepo.delete(task.id);
+    await this.essayRepo.delete({ taskId: tid });
+    await this.taskRepo.delete(tid);
     return { ok: true };
   }
 
   /**
    * ✅ usado pelo PDF (wrapper)
+   * - ordena por createdAt se existir
    */
   async byRoom(roomId: string) {
-    const rid = this.normId(roomId);
-    if (!rid) return [];
+    const r = String(roomId || '').trim();
+    if (!r) return [];
+
     return this.taskRepo.find({
-      where: { roomId: rid },
-      order: { createdAt: 'DESC' as any, id: 'ASC' as any },
+      where: { roomId: r },
+      order: { createdAt: 'DESC' as any },
     });
   }
 }
