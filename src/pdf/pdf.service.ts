@@ -36,11 +36,6 @@ function escapeHtml(s: any) {
     .replace(/'/g, '&#039;');
 }
 
-/**
- * ✅ Datas em pt-BR + fuso configurável
- * - Padrão: America/Sao_Paulo (corrige “hora do servidor/USA”)
- * - Override por env: PDF_TZ=America/Sao_Paulo
- */
 function formatDateBR(value: any, tz?: string) {
   if (!value) return '—';
   const d = value instanceof Date ? value : new Date(value);
@@ -70,7 +65,6 @@ function mean(nums: Array<number | null | undefined>) {
   return Math.round(v.reduce((a, b) => a + b, 0) / v.length);
 }
 
-// Donut SVG segmentado (mantido)
 function donutSvg({
   c1,
   c2,
@@ -146,15 +140,8 @@ export class PdfService {
     const safeStudent = escapeHtml(studentName);
     const safeRoom = escapeHtml(roomName);
 
-    // ✅ TZ (corrige horário do relatório)
     const timeZone = String(process.env.PDF_TZ || 'America/Sao_Paulo').trim();
 
-    /**
-     * ✅ LOGO:
-     * Para HEADER do Puppeteer, o mais confiável é DATA-URL (base64).
-     * Se PDF_LOGO_URL for http(s), pode falhar no header (não “espera” rede).
-     * Então: preferimos base64 local; se não existir, usamos a env.
-     */
     const logoUrlEnv = String(process.env.PDF_LOGO_URL || '').trim();
     let logoDataUrl = '';
 
@@ -173,12 +160,12 @@ export class PdfService {
       if (isData) {
         logoDataUrl = logoUrlEnv;
       } else {
-        // preferir local para garantir no header
         logoDataUrl = loadLocalLogo() || logoUrlEnv;
       }
     } else {
       logoDataUrl = loadLocalLogo();
       if (!logoDataUrl) {
+        // não quebra o PDF, só avisa
         console.warn('[PDF] Logo não encontrada em assets/logo1.png e PDF_LOGO_URL não definido.');
       }
     }
@@ -268,33 +255,20 @@ export class PdfService {
       })
       .join('');
 
-    /**
-     * ✅ Ajustes pedidos
-     *
-     * (1) Garantir que o CONTEÚDO nunca invada header/footer:
-     *     - header/footer têm altura fixa (mm)
-     *     - margens top/bottom sempre MAIORES que a altura deles + uma folga
-     *
-     * (2) Margens laterais 1,5cm ou 2cm:
-     *     - default: 20mm (2cm) e você pode reduzir para 15mm via env.
-     */
-    const HEADER_MM = Number(process.env.PDF_HEADER_MM || 16); // altura do header
-    const FOOTER_MM = Number(process.env.PDF_FOOTER_MM || 14); // altura do footer
+    const HEADER_MM = Number(process.env.PDF_HEADER_MM || 16);
+    const FOOTER_MM = Number(process.env.PDF_FOOTER_MM || 14);
 
-    // folga extra (respiro) para nunca encostar/“sobrepor”
     const TOP_GAP_MM = Number(process.env.PDF_TOP_GAP_MM || 10);
     const BOTTOM_GAP_MM = Number(process.env.PDF_BOTTOM_GAP_MM || 8);
 
-    // ✅ margens laterais: default 2cm (recomendado por você)
     const LR_MM = Number(process.env.PDF_MARGIN_LR_MM || 20);
 
-    // ✅ margem top/bottom calculadas para “blindar” overlap
-    const TOP_MM = Number(process.env.PDF_MARGIN_TOP_MM || HEADER_MM + TOP_GAP_MM + 6); // +6mm “sobra”
+    const TOP_MM = Number(process.env.PDF_MARGIN_TOP_MM || HEADER_MM + TOP_GAP_MM + 6);
     const BOTTOM_MM = Number(process.env.PDF_MARGIN_BOTTOM_MM || FOOTER_MM + BOTTOM_GAP_MM + 6);
 
     const marginTop = `${Math.max(TOP_MM, HEADER_MM + 12)}mm`;
     const marginBottom = `${Math.max(BOTTOM_MM, FOOTER_MM + 10)}mm`;
-    const marginLR = `${Math.max(LR_MM, 15)}mm`; // nunca menos que 1,5cm
+    const marginLR = `${Math.max(LR_MM, 15)}mm`;
 
     const html = `
 <!DOCTYPE html>
@@ -319,7 +293,6 @@ export class PdfService {
   .muted { font-size:12px; color:var(--muted); }
   .section { padding: 0; }
 
-  /* CAPA: centraliza verticalmente dentro da área útil */
   .cover { page-break-after: always; break-after: page; }
   .coverWrap { min-height: 230mm; display:flex; align-items:center; }
   .coverInner { width:100%; }
@@ -457,9 +430,15 @@ export class PdfService {
 </html>
 `;
 
+    // ✅ fallback: alguns ambientes retornam null (dev/local)
+    const execPath =
+      (await chromium.executablePath()) ||
+      String(process.env.CHROME_EXECUTABLE_PATH || '').trim() ||
+      undefined;
+
     const browser = await puppeteer.launch({
       args: chromium.args,
-      executablePath: await chromium.executablePath(),
+      executablePath: execPath,
       headless: chromium.headless,
       defaultViewport: chromium.defaultViewport,
     });
@@ -468,12 +447,16 @@ export class PdfService {
       const page = await browser.newPage();
       await page.setBypassCSP(true);
 
-      await page.setContent(html, { waitUntil: 'networkidle0' });
+      // ✅ mais resiliente
+      try {
+        await page.setContent(html, { waitUntil: 'networkidle0' });
+      } catch {
+        await page.setContent(html, { waitUntil: 'domcontentloaded' });
+      }
 
       const headerRoom = safeRoom;
       const headerStudent = safeStudent;
 
-      // ✅ Header/footer com altura fixa (mm) e “linha” pra você ver claramente a separação
       const headerTemplate = `
         <div style="width:100%; box-sizing:border-box; padding:0 ${marginLR}; height:${HEADER_MM}mm; display:flex; align-items:center; justify-content:space-between; border-bottom:1px solid rgba(15,23,42,0.10);">
           <div style="display:flex; align-items:center; gap:8px; min-width:0;">
@@ -509,13 +492,6 @@ export class PdfService {
         displayHeaderFooter: true,
         headerTemplate,
         footerTemplate,
-
-        /**
-         * ✅ “Blindagem” contra sobreposição:
-         * - O conteúdo só é renderizado DENTRO dessas margens.
-         * - O header/footer ficam FORA (na área da margem).
-         * - Como top/bottom são maiores que header/footer, não tem como invadir.
-         */
         margin: {
           top: marginTop,
           bottom: marginBottom,
