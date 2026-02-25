@@ -9,7 +9,7 @@ import { EnrollmentEntity } from '../enrollments/enrollment.entity';
 import { EssayEntity } from '../essays/essay.entity';
 import { RoomEntity } from '../rooms/room.entity';
 
-import { RoomsModule } from '../rooms/rooms.module'; // ✅ ADD
+import { RoomsModule } from '../rooms/rooms.module'; // ✅ IMPORTANTE
 
 @Module({
   imports: [
@@ -20,7 +20,7 @@ import { RoomsModule } from '../rooms/rooms.module'; // ✅ ADD
       RoomEntity,
     ]),
 
-    RoomsModule, // ✅ ADD (fornece RoomsService)
+    RoomsModule, // ✅ disponibiliza RoomsService no contexto do TasksModule
   ],
   controllers: [TasksController],
   providers: [TasksService],
