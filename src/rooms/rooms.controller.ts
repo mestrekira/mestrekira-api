@@ -27,9 +27,31 @@ export class RoomsController {
     if (role !== 'professor') {
       throw new ForbiddenException('Apenas professores podem acessar este recurso.');
     }
+
+    // JwtStrategy retorna { id, role }
     const id = String((req as any)?.user?.id || '').trim();
     if (!id) throw new BadRequestException('Sessão inválida.');
+
     return id;
+  }
+
+  /**
+   * ✅ Garante que a sala existe e pertence ao professor logado
+   */
+  private async ensureProfessorOwnsRoom(req: Request, roomId: string) {
+    const professorId = this.ensureProfessor(req);
+
+    const rid = String(roomId || '').trim();
+    if (!rid) throw new BadRequestException('roomId inválido.');
+
+    const room = await this.roomsService.findById(rid);
+    if (!room) throw new BadRequestException('Sala não encontrada.');
+
+    if (String((room as any).professorId || '').trim() !== professorId) {
+      throw new ForbiddenException('Você não tem acesso a esta sala.');
+    }
+
+    return { professorId, room };
   }
 
   /**
@@ -54,64 +76,61 @@ export class RoomsController {
   }
 
   /**
-   * ✅ Buscar por código (aluno normalmente usa /enrollments/join)
-   * Mantive protegido aqui para não virar endpoint público de enumeração.
-   * Se você precisa que aluno consulte por código diretamente,
-   * a forma segura é via /enrollments/join (que já valida role=student).
+   * ✅ Buscar por código (mantido protegido para evitar enumeração)
+   * Se aluno precisar, use /enrollments/join
    */
   @Get('by-code')
   findByCode(@Req() req: Request, @Query('code') code: string) {
-    // permite professor ver por code
     this.ensureProfessor(req);
     return this.roomsService.findByCode(code);
   }
 
-  // ✅ Alunos matriculados (professor)
+  // ✅ Alunos matriculados (professor + ownership)
   @Get(':id/students')
-  students(@Req() req: Request, @Param('id') id: string) {
-    this.ensureProfessor(req);
+  async students(@Req() req: Request, @Param('id') id: string) {
+    await this.ensureProfessorOwnsRoom(req, id);
     return this.roomsService.findStudents(id);
   }
 
-  // ✅ Remover aluno da sala (professor)
+  // ✅ Remover aluno da sala (professor + ownership)
   @Delete(':roomId/students/:studentId')
-  removeStudent(
+  async removeStudent(
     @Req() req: Request,
     @Param('roomId') roomId: string,
     @Param('studentId') studentId: string,
   ) {
-    this.ensureProfessor(req);
+    await this.ensureProfessorOwnsRoom(req, roomId);
     return this.roomsService.removeStudent(roomId, studentId);
   }
 
-  // ✅ Overview (professor)
+  // ✅ Overview (professor + ownership)
   @Get(':id/overview')
-  overview(@Req() req: Request, @Param('id') id: string) {
-    this.ensureProfessor(req);
+  async overview(@Req() req: Request, @Param('id') id: string) {
+    await this.ensureProfessorOwnsRoom(req, id);
     return this.roomsService.overview(id);
   }
 
-  // ✅ Sala + professor (leve)
+  // ✅ Sala + professor (professor + ownership)
   @Get(':id/with-professor')
-  withProfessor(@Req() req: Request, @Param('id') id: string) {
-    this.ensureProfessor(req);
+  async withProfessor(@Req() req: Request, @Param('id') id: string) {
+    await this.ensureProfessorOwnsRoom(req, id);
     return this.roomsService.withProfessor(id);
   }
 
   /**
-   * ✅ Buscar por id
-   * Mantido para professor (se aluno precisar, crie endpoint específico protegido por role student)
+   * ✅ Buscar sala por id (professor + ownership)
+   * Se aluno precisar, crie endpoint específico protegido por role student.
    */
   @Get(':id')
-  findById(@Req() req: Request, @Param('id') id: string) {
-    this.ensureProfessor(req);
+  async findById(@Req() req: Request, @Param('id') id: string) {
+    await this.ensureProfessorOwnsRoom(req, id);
     return this.roomsService.findById(id);
   }
 
-  // ✅ Remover sala (professor)
+  // ✅ Remover sala (professor + ownership)
   @Delete(':id')
-  remove(@Req() req: Request, @Param('id') id: string) {
-    this.ensureProfessor(req);
+  async remove(@Req() req: Request, @Param('id') id: string) {
+    await this.ensureProfessorOwnsRoom(req, id);
     return this.roomsService.remove(id);
   }
 }
