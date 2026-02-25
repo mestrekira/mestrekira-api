@@ -7,7 +7,9 @@ import { TasksService } from './tasks.service';
 import { TaskEntity } from './task.entity';
 import { EnrollmentEntity } from '../enrollments/enrollment.entity';
 import { EssayEntity } from '../essays/essay.entity';
-import { RoomEntity } from '../rooms/room.entity'; // ✅ IMPORTANTE
+import { RoomEntity } from '../rooms/room.entity';
+
+import { RoomsModule } from '../rooms/rooms.module'; // ✅ ADD
 
 @Module({
   imports: [
@@ -15,8 +17,10 @@ import { RoomEntity } from '../rooms/room.entity'; // ✅ IMPORTANTE
       TaskEntity,
       EnrollmentEntity,
       EssayEntity,
-      RoomEntity, // ✅ necessário se TasksService injeta RoomEntityRepository
+      RoomEntity,
     ]),
+
+    RoomsModule, // ✅ ADD (fornece RoomsService)
   ],
   controllers: [TasksController],
   providers: [TasksService],
