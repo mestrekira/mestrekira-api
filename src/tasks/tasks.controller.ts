@@ -10,6 +10,7 @@ import {
   Query,
   Req,
   UseGuards,
+  NotFoundException,
 } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import type { Request } from 'express';
@@ -48,7 +49,7 @@ export class TasksController {
     if (!rid) throw new BadRequestException('roomId é obrigatório.');
 
     const room = await this.roomsService.findById(rid);
-    if (!room) throw new BadRequestException('Sala não encontrada.');
+    if (!room) throw new NotFoundException('Sala não encontrada.');
 
     if (String((room as any).professorId || '').trim() !== professorId) {
       throw new ForbiddenException('Você não tem acesso a esta sala.');
@@ -67,7 +68,7 @@ export class TasksController {
     if (!tid) throw new BadRequestException('id é obrigatório.');
 
     const task = await this.tasksService.findById(tid);
-    if (!task) throw new BadRequestException('Tarefa não encontrada.');
+    if (!task) throw new NotFoundException('Tarefa não encontrada.');
 
     const roomId = String((task as any).roomId || '').trim();
     if (!roomId) throw new BadRequestException('Tarefa inválida (roomId ausente).');
@@ -122,6 +123,8 @@ export class TasksController {
   @Delete(':id')
   async remove(@Req() req: Request, @Param('id') id: string) {
     await this.ensureProfessorOwnsTask(req, id);
-    return this.tasksService.remove(String(id || '').trim());
+
+    const tid = String(id || '').trim();
+    return this.tasksService.remove(tid);
   }
 }
