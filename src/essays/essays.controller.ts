@@ -1,72 +1,136 @@
 import {
-  Controller,
-  Post,
-  Get,
-  Body,
-  Param,
-  Query,
   BadRequestException,
+  Controller,
+  ForbiddenException,
+  Get,
   NotFoundException,
+  Param,
+  Post,
+  Body,
+  Query,
+  Req,
+  UseGuards,
 } from '@nestjs/common';
-import { EssaysService } from './essays.service';
 import { ParseUUIDPipe } from '@nestjs/common';
+import { AuthGuard } from '@nestjs/passport';
+import type { Request } from 'express';
+
+import { EssaysService } from './essays.service';
+import { MustChangePasswordGuard } from '../auth/guards/must-change-password.guard';
+
 @Controller('essays')
+@UseGuards(AuthGuard('jwt'), MustChangePasswordGuard)
 export class EssaysController {
   constructor(private readonly essaysService: EssaysService) {}
 
-  // ✅ ping primeiro (evita conflito com /:id em alguns setups)
+  private ensureRole(req: Request, expected: 'student' | 'professor') {
+    const role = String((req as any)?.user?.role || '').toLowerCase();
+    if (role !== expected) {
+      throw new ForbiddenException(`Apenas ${expected} pode acessar este recurso.`);
+    }
+    const id = String((req as any)?.user?.id || '').trim();
+    if (!id) throw new BadRequestException('Sessão inválida.');
+    return id;
+  }
+
+  private ensureStudent(req: Request) {
+    return this.ensureRole(req, 'student');
+  }
+
+  private ensureProfessor(req: Request) {
+    return this.ensureRole(req, 'professor');
+  }
+
+  // ✅ ping
   @Get('ping')
   ping() {
     return { ok: true, where: 'essays' };
   }
 
-  // ✅ ENVIAR redação (bloqueia duplicado no service)
+  /**
+   * ✅ ENVIAR redação (ALUNO)
+   * - Agora o studentId vem do JWT
+   * - Mantém compatibilidade: se vier studentId no body, valida que é o mesmo do token
+   */
   @Post()
-  create(@Body() body: any) {
-    const taskId = (body.taskId || '').trim();
-    const studentId = (body.studentId || '').trim();
-    const content = body.content ?? '';
+  create(@Req() req: Request, @Body() body: any) {
+    const tokenStudentId = this.ensureStudent(req);
 
-    if (!taskId || !studentId) {
-      throw new BadRequestException('taskId e studentId são obrigatórios');
+    const taskId = String(body?.taskId || '').trim();
+    const studentIdFromBody = String(body?.studentId || '').trim(); // compat
+    const content = body?.content ?? '';
+
+    if (!taskId) throw new BadRequestException('taskId é obrigatório.');
+
+    if (studentIdFromBody && studentIdFromBody !== tokenStudentId) {
+      throw new ForbiddenException('studentId inválido para esta sessão.');
     }
-    return this.essaysService.submit(taskId, studentId, content);
+
+    return this.essaysService.submit(taskId, tokenStudentId, content);
   }
 
-  // ✅ SALVAR RASCUNHO (upsert)
+  /**
+   * ✅ SALVAR RASCUNHO (ALUNO)
+   * Mesma regra de segurança do create()
+   */
   @Post('draft')
-  saveDraft(@Body() body: any) {
-    const taskId = (body.taskId || '').trim();
-    const studentId = (body.studentId || '').trim();
-    const content = body.content ?? '';
+  saveDraft(@Req() req: Request, @Body() body: any) {
+    const tokenStudentId = this.ensureStudent(req);
 
-    if (!taskId || !studentId) {
-      throw new BadRequestException('taskId e studentId são obrigatórios');
+    const taskId = String(body?.taskId || '').trim();
+    const studentIdFromBody = String(body?.studentId || '').trim(); // compat
+    const content = body?.content ?? '';
+
+    if (!taskId) throw new BadRequestException('taskId é obrigatório.');
+
+    if (studentIdFromBody && studentIdFromBody !== tokenStudentId) {
+      throw new ForbiddenException('studentId inválido para esta sessão.');
     }
-    return this.essaysService.saveDraft(taskId, studentId, content);
+
+    return this.essaysService.saveDraft(taskId, tokenStudentId, content);
   }
 
-  // ✅ buscar redação/rascunho do aluno naquela tarefa
+  /**
+   * ✅ buscar redação/rascunho do aluno naquela tarefa (ALUNO)
+   * - studentId vem do JWT
+   * - se vier query studentId, valida compatibilidade
+   */
   @Get('by-task/:taskId/by-student')
   async findByTaskAndStudent(
+    @Req() req: Request,
     @Param('taskId') taskId: string,
-    @Query('studentId') studentId: string,
+    @Query('studentId') studentId: string, // compat
   ) {
-    const t = (taskId || '').trim();
-    const s = (studentId || '').trim();
-    if (!t || !s) throw new BadRequestException('taskId e studentId são obrigatórios');
+    const tokenStudentId = this.ensureStudent(req);
 
-    const essay = await this.essaysService.findByTaskAndStudent(t, s);
+    const t = String(taskId || '').trim();
+    const s = String(studentId || '').trim();
+
+    if (!t) throw new BadRequestException('taskId é obrigatório.');
+
+    if (s && s !== tokenStudentId) {
+      throw new ForbiddenException('studentId inválido para esta sessão.');
+    }
+
+    const essay = await this.essaysService.findByTaskAndStudent(t, tokenStudentId);
     if (!essay) throw new NotFoundException('Redação não encontrada');
     return essay;
   }
 
+  /**
+   * ✅ Corrigir redação (PROFESSOR)
+   */
   @Post(':id/correct')
-  correct(@Param('id') id: string, @Body() body: any) {
-    const { feedback, c1, c2, c3, c4, c5 } = body;
+  correct(@Req() req: Request, @Param('id') id: string, @Body() body: any) {
+    this.ensureProfessor(req);
+
+    const essayId = String(id || '').trim();
+    if (!essayId) throw new BadRequestException('id é obrigatório.');
+
+    const { feedback, c1, c2, c3, c4, c5 } = body || {};
 
     return this.essaysService.correctEnem(
-      id,
+      essayId,
       feedback,
       Number(c1),
       Number(c2),
@@ -76,40 +140,96 @@ export class EssaysController {
     );
   }
 
+  /**
+   * ✅ Listar redações por tarefa com dados do aluno (PROFESSOR)
+   */
   @Get('by-task/:taskId/with-student')
-  findByTaskWithStudent(@Param('taskId') taskId: string) {
-    return this.essaysService.findByTaskWithStudent(taskId);
+  findByTaskWithStudent(@Req() req: Request, @Param('taskId') taskId: string) {
+    this.ensureProfessor(req);
+
+    const t = String(taskId || '').trim();
+    if (!t) throw new BadRequestException('taskId é obrigatório.');
+
+    return this.essaysService.findByTaskWithStudent(t);
   }
 
+  /**
+   * ✅ Listar redações por tarefa (PROFESSOR)
+   */
   @Get('by-task/:taskId')
-  findByTask(@Param('taskId') taskId: string) {
-    return this.essaysService.findByTask(taskId);
+  findByTask(@Req() req: Request, @Param('taskId') taskId: string) {
+    this.ensureProfessor(req);
+
+    const t = String(taskId || '').trim();
+    if (!t) throw new BadRequestException('taskId é obrigatório.');
+
+    return this.essaysService.findByTask(t);
   }
 
+  /**
+   * ✅ Performance por sala (PROFESSOR)
+   */
   @Get('performance/by-room')
-  performanceByRoom(@Query('roomId') roomId: string) {
-    return this.essaysService.performanceByRoom(roomId);
+  performanceByRoom(@Req() req: Request, @Query('roomId') roomId: string) {
+    this.ensureProfessor(req);
+
+    const r = String(roomId || '').trim();
+    if (!r) throw new BadRequestException('roomId é obrigatório.');
+
+    return this.essaysService.performanceByRoom(r);
   }
 
+  /**
+   * ✅ Performance por sala para aluno (ALUNO)
+   * - studentId vem do JWT
+   * - se vier query studentId, valida compatibilidade
+   */
   @Get('performance/by-room-for-student')
   performanceByRoomForStudent(
+    @Req() req: Request,
     @Query('roomId') roomId: string,
-    @Query('studentId') studentId: string,
+    @Query('studentId') studentId: string, // compat
   ) {
-    return this.essaysService.performanceByRoomForStudent(roomId, studentId);
+    const tokenStudentId = this.ensureStudent(req);
+
+    const r = String(roomId || '').trim();
+    const s = String(studentId || '').trim();
+
+    if (!r) throw new BadRequestException('roomId é obrigatório.');
+
+    if (s && s !== tokenStudentId) {
+      throw new ForbiddenException('studentId inválido para esta sessão.');
+    }
+
+    return this.essaysService.performanceByRoomForStudent(r, tokenStudentId);
   }
 
-  // ... (todas as rotas específicas aqui)
-
+  /**
+   * ✅ Buscar redação com aluno (PROFESSOR)
+   */
   @Get(':id/with-student')
-  findOneWithStudent(@Param('id', new ParseUUIDPipe({ version: '4' })) id: string) {
+  findOneWithStudent(
+    @Req() req: Request,
+    @Param('id', new ParseUUIDPipe({ version: '4' })) id: string,
+  ) {
+    this.ensureProfessor(req);
     return this.essaysService.findOneWithStudent(id);
   }
 
+  /**
+   * ✅ Buscar redação por id:
+   * - Professor pode ver qualquer redação (do escopo dele via service, se você filtrar)
+   * - Aluno pode ver a sua (se quiser, você pode mover para rota específica)
+   *
+   * Por segurança mínima agora: deixo PROFESSOR apenas.
+   * Se você precisa que o aluno abra /essays/:id, me diga e eu libero com checagem no service.
+   */
   @Get(':id')
-  findOne(@Param('id', new ParseUUIDPipe({ version: '4' })) id: string) {
+  findOne(
+    @Req() req: Request,
+    @Param('id', new ParseUUIDPipe({ version: '4' })) id: string,
+  ) {
+    this.ensureProfessor(req);
     return this.essaysService.findOne(id);
   }
 }
-
-
