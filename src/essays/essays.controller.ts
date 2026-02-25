@@ -16,12 +16,18 @@ import { AuthGuard } from '@nestjs/passport';
 import type { Request } from 'express';
 
 import { EssaysService } from './essays.service';
+import { TasksService } from '../tasks/tasks.service';
+import { RoomsService } from '../rooms/rooms.service';
 import { MustChangePasswordGuard } from '../auth/guards/must-change-password.guard';
 
 @Controller('essays')
 @UseGuards(AuthGuard('jwt'), MustChangePasswordGuard)
 export class EssaysController {
-  constructor(private readonly essaysService: EssaysService) {}
+  constructor(
+    private readonly essaysService: EssaysService,
+    private readonly tasksService: TasksService,
+    private readonly roomsService: RoomsService,
+  ) {}
 
   private ensureRole(req: Request, expected: 'student' | 'professor') {
     const role = String((req as any)?.user?.role || '').toLowerCase();
@@ -41,6 +47,63 @@ export class EssaysController {
     return this.ensureRole(req, 'professor');
   }
 
+  /**
+   * ✅ Ownership: garante que a ROOM pertence ao professor logado
+   */
+  private async ensureProfessorOwnsRoom(req: Request, roomId: string) {
+    const professorId = this.ensureProfessor(req);
+
+    const rid = String(roomId || '').trim();
+    if (!rid) throw new BadRequestException('roomId inválido.');
+
+    const room = await this.roomsService.findById(rid);
+    if (!room) throw new NotFoundException('Sala não encontrada.');
+
+    if (String((room as any).professorId || '').trim() !== professorId) {
+      throw new ForbiddenException('Você não tem acesso a esta sala.');
+    }
+
+    return { professorId, room };
+  }
+
+  /**
+   * ✅ Ownership: garante que a TASK pertence a uma sala do professor
+   */
+  private async ensureProfessorOwnsTask(req: Request, taskId: string) {
+    this.ensureProfessor(req);
+
+    const tid = String(taskId || '').trim();
+    if (!tid) throw new BadRequestException('taskId inválido.');
+
+    const task = await this.tasksService.findById(tid);
+    if (!task) throw new NotFoundException('Tarefa não encontrada.');
+
+    const roomId = String((task as any).roomId || '').trim();
+    if (!roomId) throw new BadRequestException('Tarefa inválida (roomId ausente).');
+
+    await this.ensureProfessorOwnsRoom(req, roomId);
+    return task;
+  }
+
+  /**
+   * ✅ Ownership: garante que a ESSAY pertence ao professor (via task->room)
+   */
+  private async ensureProfessorOwnsEssay(req: Request, essayId: string) {
+    this.ensureProfessor(req);
+
+    const eid = String(essayId || '').trim();
+    if (!eid) throw new BadRequestException('id inválido.');
+
+    const essay = await this.essaysService.findOne(eid);
+    if (!essay) throw new NotFoundException('Redação não encontrada.');
+
+    const taskId = String((essay as any).taskId || '').trim();
+    if (!taskId) throw new BadRequestException('Redação inválida (taskId ausente).');
+
+    await this.ensureProfessorOwnsTask(req, taskId);
+    return essay;
+  }
+
   // ✅ ping
   @Get('ping')
   ping() {
@@ -49,8 +112,8 @@ export class EssaysController {
 
   /**
    * ✅ ENVIAR redação (ALUNO)
-   * - Agora o studentId vem do JWT
-   * - Mantém compatibilidade: se vier studentId no body, valida que é o mesmo do token
+   * - studentId vem do JWT
+   * - compat: se vier studentId no body, valida que é igual ao token
    */
   @Post()
   create(@Req() req: Request, @Body() body: any) {
@@ -71,7 +134,6 @@ export class EssaysController {
 
   /**
    * ✅ SALVAR RASCUNHO (ALUNO)
-   * Mesma regra de segurança do create()
    */
   @Post('draft')
   saveDraft(@Req() req: Request, @Body() body: any) {
@@ -93,7 +155,7 @@ export class EssaysController {
   /**
    * ✅ buscar redação/rascunho do aluno naquela tarefa (ALUNO)
    * - studentId vem do JWT
-   * - se vier query studentId, valida compatibilidade
+   * - compat: se vier query studentId, valida
    */
   @Get('by-task/:taskId/by-student')
   async findByTaskAndStudent(
@@ -118,14 +180,19 @@ export class EssaysController {
   }
 
   /**
-   * ✅ Corrigir redação (PROFESSOR)
+   * ✅ Corrigir redação (PROFESSOR + ownership)
    */
   @Post(':id/correct')
-  correct(@Req() req: Request, @Param('id') id: string, @Body() body: any) {
-    this.ensureProfessor(req);
-
+  async correct(
+    @Req() req: Request,
+    @Param('id') id: string,
+    @Body() body: any,
+  ) {
     const essayId = String(id || '').trim();
     if (!essayId) throw new BadRequestException('id é obrigatório.');
+
+    // ✅ garante que a redação é de uma sala do professor
+    await this.ensureProfessorOwnsEssay(req, essayId);
 
     const { feedback, c1, c2, c3, c4, c5 } = body || {};
 
@@ -141,40 +208,40 @@ export class EssaysController {
   }
 
   /**
-   * ✅ Listar redações por tarefa com dados do aluno (PROFESSOR)
+   * ✅ Listar redações por tarefa com dados do aluno (PROFESSOR + ownership)
    */
   @Get('by-task/:taskId/with-student')
-  findByTaskWithStudent(@Req() req: Request, @Param('taskId') taskId: string) {
-    this.ensureProfessor(req);
-
+  async findByTaskWithStudent(@Req() req: Request, @Param('taskId') taskId: string) {
     const t = String(taskId || '').trim();
     if (!t) throw new BadRequestException('taskId é obrigatório.');
+
+    await this.ensureProfessorOwnsTask(req, t);
 
     return this.essaysService.findByTaskWithStudent(t);
   }
 
   /**
-   * ✅ Listar redações por tarefa (PROFESSOR)
+   * ✅ Listar redações por tarefa (PROFESSOR + ownership)
    */
   @Get('by-task/:taskId')
-  findByTask(@Req() req: Request, @Param('taskId') taskId: string) {
-    this.ensureProfessor(req);
-
+  async findByTask(@Req() req: Request, @Param('taskId') taskId: string) {
     const t = String(taskId || '').trim();
     if (!t) throw new BadRequestException('taskId é obrigatório.');
+
+    await this.ensureProfessorOwnsTask(req, t);
 
     return this.essaysService.findByTask(t);
   }
 
   /**
-   * ✅ Performance por sala (PROFESSOR)
+   * ✅ Performance por sala (PROFESSOR + ownership)
    */
   @Get('performance/by-room')
-  performanceByRoom(@Req() req: Request, @Query('roomId') roomId: string) {
-    this.ensureProfessor(req);
-
+  async performanceByRoom(@Req() req: Request, @Query('roomId') roomId: string) {
     const r = String(roomId || '').trim();
     if (!r) throw new BadRequestException('roomId é obrigatório.');
+
+    await this.ensureProfessorOwnsRoom(req, r);
 
     return this.essaysService.performanceByRoom(r);
   }
@@ -182,7 +249,7 @@ export class EssaysController {
   /**
    * ✅ Performance por sala para aluno (ALUNO)
    * - studentId vem do JWT
-   * - se vier query studentId, valida compatibilidade
+   * - compat: se vier query studentId, valida
    */
   @Get('performance/by-room-for-student')
   performanceByRoomForStudent(
@@ -205,31 +272,26 @@ export class EssaysController {
   }
 
   /**
-   * ✅ Buscar redação com aluno (PROFESSOR)
+   * ✅ Buscar redação com aluno (PROFESSOR + ownership)
    */
   @Get(':id/with-student')
-  findOneWithStudent(
+  async findOneWithStudent(
     @Req() req: Request,
     @Param('id', new ParseUUIDPipe({ version: '4' })) id: string,
   ) {
-    this.ensureProfessor(req);
+    await this.ensureProfessorOwnsEssay(req, id);
     return this.essaysService.findOneWithStudent(id);
   }
 
   /**
-   * ✅ Buscar redação por id:
-   * - Professor pode ver qualquer redação (do escopo dele via service, se você filtrar)
-   * - Aluno pode ver a sua (se quiser, você pode mover para rota específica)
-   *
-   * Por segurança mínima agora: deixo PROFESSOR apenas.
-   * Se você precisa que o aluno abra /essays/:id, me diga e eu libero com checagem no service.
+   * ✅ Buscar redação por id (PROFESSOR + ownership)
    */
   @Get(':id')
-  findOne(
+  async findOne(
     @Req() req: Request,
     @Param('id', new ParseUUIDPipe({ version: '4' })) id: string,
   ) {
-    this.ensureProfessor(req);
+    await this.ensureProfessorOwnsEssay(req, id);
     return this.essaysService.findOne(id);
   }
 }
