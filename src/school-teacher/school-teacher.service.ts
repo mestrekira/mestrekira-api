@@ -26,17 +26,16 @@ export class SchoolTeacherService {
     private readonly userRepo: Repository<UserEntity>,
   ) {}
 
-  private normalizeEmail(email: string) {
+  private normalizeEmail(email: any) {
     return String(email || '').trim().toLowerCase();
   }
 
   private newCode() {
-    // token curto para o link/código
     return crypto.randomBytes(10).toString('base64url');
   }
 
   /**
-   * ✅ escola cria convite para professor
+   * ✅ Escola cria convite para professor
    */
   async createInvite(schoolId: string, teacherEmail: string) {
     const sid = String(schoolId || '').trim();
@@ -72,10 +71,10 @@ export class SchoolTeacherService {
   }
 
   /**
-   * ✅ professor aceita convite:
-   * - cria (ou reativa) usuário professor
+   * ✅ Professor aceita convite
+   * - cria (ou reativa) professor
    * - seta SCHOOL_MANAGED, schoolId, mustChangePassword=true
-   * - define senha inicial (gerada) (você pode trocar por fluxo de "criar senha" via link)
+   * - gera senha temporária e salva em bcrypt
    */
   async acceptInvite(code: string, teacherName: string) {
     const c = String(code || '').trim();
@@ -92,24 +91,24 @@ export class SchoolTeacherService {
       },
     });
 
-    if (!invite) {
-      throw new BadRequestException('Convite inválido ou expirado.');
-    }
+    if (!invite) throw new BadRequestException('Convite inválido ou expirado.');
 
-    // marca como usado (agora)
+    // marca como usado
     invite.usedAt = new Date();
     await this.inviteRepo.save(invite);
 
     const email = this.normalizeEmail(invite.teacherEmail);
 
-    // se já existir usuário com esse email, reaproveita se for professor
+    // ✅ ATENÇÃO: findOne (não find) para não virar UserEntity[]
     let user = await this.userRepo.findOne({ where: { email } });
 
-    const initialPassword = crypto.randomBytes(6).toString('base64url'); // senha temporária
+    // senha temporária
+    const initialPassword = crypto.randomBytes(6).toString('base64url');
     const passwordHash = await bcrypt.hash(initialPassword, 10);
 
+    // cria
     if (!user) {
-      user = this.userRepo.create({
+      const created = this.userRepo.create({
         name,
         email,
         password: passwordHash,
@@ -121,31 +120,34 @@ export class SchoolTeacherService {
         trialMode: false,
         isActive: true,
 
-        // você pode optar por já deixar verificado (se convite é “controle”)
+        // convite como “controle” → pode marcar verificado
         emailVerified: true,
         emailVerifiedAt: new Date(),
         emailVerifyTokenHash: null,
         emailVerifyTokenExpiresAt: null,
       } as any);
 
-      const saved = await this.userRepo.save(user);
+      const saved = await this.userRepo.save(created);
 
       return {
         ok: true,
         created: true,
         teacherId: saved.id,
         teacherEmail: saved.email,
-        initialPassword, // ⚠️ envie por e-mail depois
+        initialPassword,
         mustChangePassword: true,
       };
     }
 
-    // usuário existe
+    // existe
     if (roleOf(user) !== 'professor') {
-      throw new BadRequestException('Este e-mail já está cadastrado como outro tipo de usuário.');
+      throw new BadRequestException(
+        'Este e-mail já está cadastrado como outro tipo de usuário.',
+      );
     }
 
-    // converte para SCHOOL_MANAGED
+    // converte para SCHOOL_MANAGED e amarra na escola do convite
+    (user as any).name = name || user.name;
     (user as any).professorType = 'SCHOOL_MANAGED';
     (user as any).schoolId = invite.schoolId;
     (user as any).mustChangePassword = true;
@@ -154,20 +156,20 @@ export class SchoolTeacherService {
     // redefine senha temporária
     user.password = passwordHash;
 
-    // garante verificação (opcional)
+    // marca verificado (opcional)
     (user as any).emailVerified = true;
     (user as any).emailVerifiedAt = new Date();
     (user as any).emailVerifyTokenHash = null;
     (user as any).emailVerifyTokenExpiresAt = null;
 
-    await this.userRepo.save(user);
+    const saved = await this.userRepo.save(user);
 
     return {
       ok: true,
       created: false,
-      teacherId: user.id,
-      teacherEmail: user.email,
-      initialPassword, // ⚠️ envie por e-mail depois
+      teacherId: saved.id,
+      teacherEmail: saved.email,
+      initialPassword,
       mustChangePassword: true,
     };
   }
