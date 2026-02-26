@@ -153,12 +153,6 @@ async registerSchool(name: string, email: string, password: string) {
         mustChangePassword: !!(user as any).mustChangePassword,
       },
     };
-
-  const token = await this.jwt.signAsync({
-  sub: user.id,
-  role: (user.role || 'student').toLowerCase(),
-  mustChangePassword: !!(user as any).mustChangePassword,
-});
   }
 
   // -----------------------------
@@ -432,5 +426,36 @@ async registerSchool(name: string, email: string, password: string) {
   );
 
   return { ok: true, message: 'Senha definida com sucesso.' };
+}
+
+  async changePassword(userId: string, currentPassword: string, newPassword: string) {
+  const id = String(userId || '').trim();
+  if (!id) throw new BadRequestException('userId ausente.');
+
+  const curr = String(currentPassword || '');
+  const pass = String(newPassword || '');
+
+  if (!curr) throw new BadRequestException('Senha atual é obrigatória.');
+  if (!pass || pass.length < 8) {
+    throw new BadRequestException('Senha deve ter no mínimo 8 caracteres.');
+  }
+
+  const user = await this.userRepo.findOne({ where: { id } });
+  if (!user) throw new NotFoundException('Usuário não encontrado.');
+
+  const ok = await bcrypt.compare(curr, String(user.password || ''));
+  if (!ok) throw new BadRequestException('Senha atual inválida.');
+
+  const hash = await bcrypt.hash(pass, 10);
+
+  await this.userRepo.update(
+    { id },
+    {
+      password: hash,
+      mustChangePassword: false,
+    } as any,
+  );
+
+  return { ok: true, message: 'Senha alterada com sucesso.' };
 }
 }
