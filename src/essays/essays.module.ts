@@ -10,15 +10,25 @@ import { TaskEntity } from '../tasks/task.entity';
 import { EnrollmentEntity } from '../enrollments/enrollment.entity';
 import { RoomEntity } from '../rooms/room.entity';
 
+import { TasksModule } from '../tasks/tasks.module';
+import { RoomsModule } from '../rooms/rooms.module';
+
 @Module({
   imports: [
+    // ✅ Repositórios usados pelo EssaysService (e/ou queries auxiliares)
     TypeOrmModule.forFeature([
       EssayEntity,
       UserEntity,
       TaskEntity,
-      EnrollmentEntity, // ✅ faltava (index [3])
-      RoomEntity,       // ✅ você está injetando também
+
+      // ✅ se seu EssaysService usa Enrollment/Room em algum ponto (se não usar, pode remover)
+      EnrollmentEntity,
+      RoomEntity,
     ]),
+
+    // ✅ Para DI no CONTROLLER (TasksService e RoomsService)
+    TasksModule,
+    RoomsModule,
   ],
   controllers: [EssaysController],
   providers: [EssaysService],
