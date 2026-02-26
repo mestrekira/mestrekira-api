@@ -5,7 +5,7 @@ import {
   ForbiddenException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { MoreThan, Repository } from 'typeorm';
+import { MoreThan, IsNull, Repository } from 'typeorm';
 import * as crypto from 'crypto';
 import * as bcrypt from 'bcrypt';
 
@@ -34,6 +34,11 @@ export class SchoolTeacherService {
     return crypto.randomBytes(10).toString('base64url');
   }
 
+  private newTempPassword() {
+    // senha temporária curta (mas razoável) – você pode aumentar depois
+    return crypto.randomBytes(6).toString('base64url');
+  }
+
   /**
    * ✅ Escola cria convite para professor
    */
@@ -46,7 +51,9 @@ export class SchoolTeacherService {
 
     const school = await this.userRepo.findOne({ where: { id: sid } });
     if (!school) throw new NotFoundException('Escola não encontrada.');
-    if (roleOf(school) !== 'school') throw new ForbiddenException('Apenas escola pode convidar.');
+    if (roleOf(school) !== 'school') {
+      throw new ForbiddenException('Apenas escola pode convidar professores.');
+    }
 
     const code = this.newCode();
     const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 dias
@@ -72,8 +79,8 @@ export class SchoolTeacherService {
 
   /**
    * ✅ Professor aceita convite
-   * - cria (ou reativa) professor
-   * - seta SCHOOL_MANAGED, schoolId, mustChangePassword=true
+   * - cria (ou converte) professor
+   * - seta professorType='SCHOOL', schoolId, mustChangePassword=true
    * - gera senha temporária e salva em bcrypt
    */
   async acceptInvite(code: string, teacherName: string) {
@@ -86,7 +93,7 @@ export class SchoolTeacherService {
     const invite = await this.inviteRepo.findOne({
       where: {
         code: c,
-        usedAt: null as any,
+        usedAt: IsNull(), // ✅ tipado corretamente (em vez de usedAt: null)
         expiresAt: MoreThan(new Date()),
       },
     });
@@ -99,14 +106,14 @@ export class SchoolTeacherService {
 
     const email = this.normalizeEmail(invite.teacherEmail);
 
-    // ✅ ATENÇÃO: findOne (não find) para não virar UserEntity[]
-    let user = await this.userRepo.findOne({ where: { email } });
+    // ✅ NUNCA use find() aqui — tem que ser findOne() para não virar UserEntity[]
+    let user: UserEntity | null = await this.userRepo.findOne({ where: { email } });
 
     // senha temporária
-    const initialPassword = crypto.randomBytes(6).toString('base64url');
-    const passwordHash = await bcrypt.hash(initialPassword, 10);
+    const tempPassword = this.newTempPassword();
+    const passwordHash = await bcrypt.hash(tempPassword, 10);
 
-    // cria
+    // cria professor novo
     if (!user) {
       const created = this.userRepo.create({
         name,
@@ -114,41 +121,42 @@ export class SchoolTeacherService {
         password: passwordHash,
         role: 'professor',
 
-        professorType: 'SCHOOL_MANAGED',
+        professorType: 'SCHOOL',
         schoolId: invite.schoolId,
         mustChangePassword: true,
         trialMode: false,
         isActive: true,
 
-        // convite como “controle” → pode marcar verificado
+        // convite = ok marcar verificado
         emailVerified: true,
         emailVerifiedAt: new Date(),
         emailVerifyTokenHash: null,
         emailVerifyTokenExpiresAt: null,
-      } as any);
+      });
 
-      const saved = await this.userRepo.save(created);
+      // ✅ tipa o retorno para evitar inferência errada de overload
+      const saved: UserEntity = await this.userRepo.save(created);
 
       return {
         ok: true,
         created: true,
         teacherId: saved.id,
         teacherEmail: saved.email,
-        initialPassword,
+        initialPassword: tempPassword,
         mustChangePassword: true,
       };
     }
 
-    // existe
+    // existe -> precisa ser professor
     if (roleOf(user) !== 'professor') {
       throw new BadRequestException(
         'Este e-mail já está cadastrado como outro tipo de usuário.',
       );
     }
 
-    // converte para SCHOOL_MANAGED e amarra na escola do convite
-    (user as any).name = name || user.name;
-    (user as any).professorType = 'SCHOOL_MANAGED';
+    // converte para professor gerenciado
+    user.name = name || user.name;
+    (user as any).professorType = 'SCHOOL';
     (user as any).schoolId = invite.schoolId;
     (user as any).mustChangePassword = true;
     (user as any).isActive = true;
@@ -162,14 +170,14 @@ export class SchoolTeacherService {
     (user as any).emailVerifyTokenHash = null;
     (user as any).emailVerifyTokenExpiresAt = null;
 
-    const saved = await this.userRepo.save(user);
+    const saved: UserEntity = await this.userRepo.save(user);
 
     return {
       ok: true,
       created: false,
       teacherId: saved.id,
       teacherEmail: saved.email,
-      initialPassword,
+      initialPassword: tempPassword,
       mustChangePassword: true,
     };
   }
