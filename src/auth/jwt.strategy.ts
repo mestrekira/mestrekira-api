@@ -27,21 +27,12 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
   }
 
   async validate(payload: JwtPayload) {
-    if (!payload?.sub) {
-      throw new UnauthorizedException('Token inválido.');
-    }
-
-    const id = String(payload.sub);
-    const role = String(payload.role || '').toLowerCase();
-
-    const user = await this.userRepo.findOne({ where: { id } });
+    if (!payload?.sub) throw new UnauthorizedException('Token inválido.');
 
     return {
-      id,
-      role,
-      mustChangePassword: !!user?.mustChangePassword,
-      professorType: user?.professorType ?? null,
-      schoolId: user?.schoolId ?? null,
+      id: String(payload.sub),
+      role: String(payload.role || ''),
+      mustChangePassword: !!payload.mustChangePassword,
     };
   }
 }
