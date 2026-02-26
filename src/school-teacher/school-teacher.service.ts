@@ -2,175 +2,183 @@ import {
   BadRequestException,
   Injectable,
   NotFoundException,
+  ForbiddenException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, MoreThan, IsNull } from 'typeorm';
+import { MoreThan, Repository } from 'typeorm';
 import * as crypto from 'crypto';
-import { JwtService } from '@nestjs/jwt';
+import * as bcrypt from 'bcrypt';
 
-import { UserEntity } from '../users/user.entity';
 import { SchoolTeacherInviteEntity } from './school-teacher-invite.entity';
+import { UserEntity } from '../users/user.entity';
+
+function roleOf(user: any) {
+  return String(user?.role || '').trim().toLowerCase();
+}
 
 @Injectable()
 export class SchoolTeacherService {
   constructor(
-    @InjectRepository(UserEntity)
-    private readonly userRepo: Repository<UserEntity>,
-
     @InjectRepository(SchoolTeacherInviteEntity)
     private readonly inviteRepo: Repository<SchoolTeacherInviteEntity>,
 
-    private readonly jwt: JwtService,
+    @InjectRepository(UserEntity)
+    private readonly userRepo: Repository<UserEntity>,
   ) {}
 
-  private normalizeEmail(email: any) {
+  private normalizeEmail(email: string) {
     return String(email || '').trim().toLowerCase();
   }
 
-  private sha256Hex(input: string) {
-    return crypto.createHash('sha256').update(input).digest('hex');
+  private newCode() {
+    // token curto para o link/código
+    return crypto.randomBytes(10).toString('base64url');
   }
 
-  private newCode6() {
-    return Math.random().toString(36).substring(2, 8).toUpperCase();
-  }
+  /**
+   * ✅ escola cria convite para professor
+   */
+  async createInvite(schoolId: string, teacherEmail: string) {
+    const sid = String(schoolId || '').trim();
+    const email = this.normalizeEmail(teacherEmail);
 
-  async sendCode(email: string) {
-    const e = this.normalizeEmail(email);
-    if (!e || !e.includes('@')) throw new BadRequestException('E-mail inválido.');
+    if (!sid) throw new BadRequestException('schoolId é obrigatório.');
+    if (!email.includes('@')) throw new BadRequestException('teacherEmail inválido.');
 
-    // precisa existir como professor gerenciado por escola
-    const teacher = await this.userRepo.findOne({ where: { email: e } });
-    if (!teacher) throw new NotFoundException('Professor não encontrado.');
+    const school = await this.userRepo.findOne({ where: { id: sid } });
+    if (!school) throw new NotFoundException('Escola não encontrada.');
+    if (roleOf(school) !== 'school') throw new ForbiddenException('Apenas escola pode convidar.');
 
-    const role = String(teacher.role || '').toLowerCase();
-    if (role !== 'professor') {
-      throw new BadRequestException('Este e-mail não pertence a um professor.');
-    }
-
-    const pType = String(teacher.professorType || '').toUpperCase();
-    if (pType !== 'SCHOOL') {
-      throw new BadRequestException(
-        'Este professor não é cadastrado pela escola.',
-      );
-    }
-
-    if (!teacher.schoolId) {
-      throw new BadRequestException('Professor sem schoolId (vínculo inválido).');
-    }
-
-    // reutiliza invite válido (evita spam) — mas como guardamos só hash,
-    // não dá para reenviar o mesmo código; então a reutilização aqui é opcional.
-    const now = new Date();
-    const existing = await this.inviteRepo.findOne({
-      where: {
-        teacherEmail: e,
-        schoolId: teacher.schoolId,
-        usedAt: IsNull(),
-        expiresAt: MoreThan(now),
-      },
-      order: { createdAt: 'DESC' as any },
-    });
-
-    // Se existir um invite válido recente, você pode:
-    // - gerar um novo para envio (recomendado), ou
-    // - manter o existente e mandar "gere outro depois"
-    // Aqui: sempre gera novo (mais simples e consistente)
-    if (existing) {
-      // opcional: poderia apagar o antigo para evitar múltiplos válidos
-      // await this.inviteRepo.update({ id: existing.id }, { usedAt: new Date() });
-    }
-
-    const code = this.newCode6();
-    const codeHash = this.sha256Hex(code);
-    const expiresAt = new Date(Date.now() + 15 * 60 * 1000); // 15 min
+    const code = this.newCode();
+    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 dias
 
     const invite = this.inviteRepo.create({
-      schoolId: teacher.schoolId,
-      teacherEmail: e,
-      teacherName: teacher.name,
-      codeHash,
+      schoolId: sid,
+      teacherEmail: email,
+      code,
       expiresAt,
       usedAt: null,
     });
 
-    await this.inviteRepo.save(invite);
-
-    // ✅ Em produção você enviaria por e-mail
-    const isProd = (process.env.NODE_ENV || '').toLowerCase() === 'production';
-    if (!isProd) {
-      return { ok: true, message: 'Código gerado (DEV).', code };
-    }
-
-    return { ok: true, message: 'Se o e-mail existir, enviaremos um código.' };
-  }
-
-  async verifyCode(email: string, code: string) {
-    const e = this.normalizeEmail(email);
-    const c = String(code || '').trim().toUpperCase();
-
-    if (!e || !e.includes('@')) throw new BadRequestException('E-mail inválido.');
-    if (!c) throw new BadRequestException('Código é obrigatório.');
-
-    const teacher = await this.userRepo.findOne({ where: { email: e } });
-    if (!teacher) throw new NotFoundException('Professor não encontrado.');
-
-    const role = String(teacher.role || '').toLowerCase();
-    if (role !== 'professor') {
-      throw new BadRequestException('Este e-mail não pertence a um professor.');
-    }
-
-    const pType = String(teacher.professorType || '').toUpperCase();
-    if (pType !== 'SCHOOL') {
-      throw new BadRequestException(
-        'Este professor não é cadastrado pela escola.',
-      );
-    }
-
-    if (!teacher.schoolId) {
-      throw new BadRequestException('Professor sem schoolId (vínculo inválido).');
-    }
-
-    const now = new Date();
-    const invite = await this.inviteRepo.findOne({
-      where: {
-        teacherEmail: e,
-        schoolId: teacher.schoolId,
-        usedAt: IsNull(),
-        expiresAt: MoreThan(now),
-      },
-      order: { createdAt: 'DESC' as any },
-    });
-
-    if (!invite) {
-      throw new BadRequestException('Código inválido ou expirado.');
-    }
-
-    const hash = this.sha256Hex(c);
-    if (hash !== invite.codeHash) {
-      throw new BadRequestException('Código inválido ou expirado.');
-    }
-
-    invite.usedAt = new Date();
-    await this.inviteRepo.save(invite);
-
-    const token = await this.jwt.signAsync({
-      sub: teacher.id,
-      role: 'professor',
-    });
+    const saved = await this.inviteRepo.save(invite);
 
     return {
       ok: true,
-      token,
-      user: {
-        id: teacher.id,
-        name: teacher.name,
-        email: teacher.email,
-        role: 'professor',
-        professorType: teacher.professorType,
-        mustChangePassword: !!teacher.mustChangePassword,
-        schoolId: teacher.schoolId,
-      },
+      inviteId: saved.id,
+      teacherEmail: saved.teacherEmail,
+      code: saved.code,
+      expiresAt: saved.expiresAt,
     };
+  }
+
+  /**
+   * ✅ professor aceita convite:
+   * - cria (ou reativa) usuário professor
+   * - seta SCHOOL_MANAGED, schoolId, mustChangePassword=true
+   * - define senha inicial (gerada) (você pode trocar por fluxo de "criar senha" via link)
+   */
+  async acceptInvite(code: string, teacherName: string) {
+    const c = String(code || '').trim();
+    const name = String(teacherName || '').trim();
+
+    if (!c) throw new BadRequestException('code é obrigatório.');
+    if (!name) throw new BadRequestException('teacherName é obrigatório.');
+
+    const invite = await this.inviteRepo.findOne({
+      where: {
+        code: c,
+        usedAt: null as any,
+        expiresAt: MoreThan(new Date()),
+      },
+    });
+
+    if (!invite) {
+      throw new BadRequestException('Convite inválido ou expirado.');
+    }
+
+    // marca como usado (agora)
+    invite.usedAt = new Date();
+    await this.inviteRepo.save(invite);
+
+    const email = this.normalizeEmail(invite.teacherEmail);
+
+    // se já existir usuário com esse email, reaproveita se for professor
+    let user = await this.userRepo.findOne({ where: { email } });
+
+    const initialPassword = crypto.randomBytes(6).toString('base64url'); // senha temporária
+    const passwordHash = await bcrypt.hash(initialPassword, 10);
+
+    if (!user) {
+      user = this.userRepo.create({
+        name,
+        email,
+        password: passwordHash,
+        role: 'professor',
+
+        professorType: 'SCHOOL_MANAGED',
+        schoolId: invite.schoolId,
+        mustChangePassword: true,
+        trialMode: false,
+        isActive: true,
+
+        // você pode optar por já deixar verificado (se convite é “controle”)
+        emailVerified: true,
+        emailVerifiedAt: new Date(),
+        emailVerifyTokenHash: null,
+        emailVerifyTokenExpiresAt: null,
+      } as any);
+
+      const saved = await this.userRepo.save(user);
+
+      return {
+        ok: true,
+        created: true,
+        teacherId: saved.id,
+        teacherEmail: saved.email,
+        initialPassword, // ⚠️ envie por e-mail depois
+        mustChangePassword: true,
+      };
+    }
+
+    // usuário existe
+    if (roleOf(user) !== 'professor') {
+      throw new BadRequestException('Este e-mail já está cadastrado como outro tipo de usuário.');
+    }
+
+    // converte para SCHOOL_MANAGED
+    (user as any).professorType = 'SCHOOL_MANAGED';
+    (user as any).schoolId = invite.schoolId;
+    (user as any).mustChangePassword = true;
+    (user as any).isActive = true;
+
+    // redefine senha temporária
+    user.password = passwordHash;
+
+    // garante verificação (opcional)
+    (user as any).emailVerified = true;
+    (user as any).emailVerifiedAt = new Date();
+    (user as any).emailVerifyTokenHash = null;
+    (user as any).emailVerifyTokenExpiresAt = null;
+
+    await this.userRepo.save(user);
+
+    return {
+      ok: true,
+      created: false,
+      teacherId: user.id,
+      teacherEmail: user.email,
+      initialPassword, // ⚠️ envie por e-mail depois
+      mustChangePassword: true,
+    };
+  }
+
+  async listInvites(schoolId: string) {
+    const sid = String(schoolId || '').trim();
+    if (!sid) throw new BadRequestException('schoolId é obrigatório.');
+
+    return this.inviteRepo.find({
+      where: { schoolId: sid },
+      order: { createdAt: 'DESC' as any },
+    });
   }
 }
