@@ -1,28 +1,26 @@
-import {
-  CanActivate,
-  ExecutionContext,
-  ForbiddenException,
-  Injectable,
-} from '@nestjs/common';
+import { CanActivate, ExecutionContext, ForbiddenException, Injectable } from '@nestjs/common';
+import type { Request } from 'express';
 
+/**
+ * Bloqueia professor gerenciado por escola enquanto mustChangePassword=true.
+ * - Deixa passar: student, school, professor individual
+ * - Bloqueia: professor com mustChangePassword=true
+ */
 @Injectable()
 export class MustChangePasswordGuard implements CanActivate {
-  canActivate(ctx: ExecutionContext): boolean {
-    const req = ctx.switchToHttp().getRequest();
+  canActivate(context: ExecutionContext): boolean {
+    const req = context.switchToHttp().getRequest<Request>();
+    const user: any = (req as any).user || {};
 
-    const role = String(req?.user?.role || '').toLowerCase();
-    if (role !== 'professor') return true;
+    const role = String(user.role || '').toLowerCase();
+    const must = !!user.mustChangePassword;
 
-    const must = !!req?.user?.mustChangePassword;
-    if (!must) return true;
+    if (role === 'professor' && must) {
+      throw new ForbiddenException(
+        'Você precisa trocar sua senha no primeiro acesso antes de continuar.',
+      );
+    }
 
-    const path = String(req?.route?.path || req?.path || '');
-    const allow = ['/auth/first-password'];
-
-    if (allow.some((p) => path.includes(p))) return true;
-
-    throw new ForbiddenException(
-      'Você precisa definir sua nova senha para continuar.',
-    );
+    return true;
   }
-}
+}v
