@@ -1,222 +1,145 @@
 import {
   BadRequestException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
-import * as bcrypt from 'bcrypt';
+import { Repository, In } from 'typeorm';
 
 import { UserEntity } from '../users/user.entity';
 import { RoomEntity } from '../rooms/room.entity';
+import { TaskEntity } from '../tasks/task.entity';
+import { EssayEntity } from '../essays/essay.entity';
+
+function roleOf(user: any) {
+  return String(user?.role || '').trim().toLowerCase();
+}
+function professorTypeOf(user: any) {
+  return String((user as any)?.professorType || '').trim().toUpperCase();
+}
+function normalizeEmail(email: any) {
+  return String(email || '').trim().toLowerCase();
+}
 
 @Injectable()
 export class SchoolsService {
-  private readonly LIMIT_MAX_ROOMS_PER_SCHOOL = 10;
-
   constructor(
     @InjectRepository(UserEntity)
     private readonly userRepo: Repository<UserEntity>,
 
     @InjectRepository(RoomEntity)
     private readonly roomRepo: Repository<RoomEntity>,
+
+    @InjectRepository(TaskEntity)
+    private readonly taskRepo: Repository<TaskEntity>,
+
+    @InjectRepository(EssayEntity)
+    private readonly essayRepo: Repository<EssayEntity>,
   ) {}
 
-  private norm(s: any) {
-    return String(s || '').trim();
-  }
+  async createRoomForTeacher(schoolId: string, roomName: string, teacherEmail: string) {
+    const sid = String(schoolId || '').trim();
+    const name = String(roomName || '').trim();
+    const email = normalizeEmail(teacherEmail);
 
-  private emailNorm(s: any) {
-    return String(s || '').trim().toLowerCase();
-  }
+    if (!sid) throw new BadRequestException('schoolId é obrigatório.');
+    if (!name) throw new BadRequestException('roomName é obrigatório.');
+    if (!email.includes('@')) throw new BadRequestException('teacherEmail inválido.');
 
-  private async generateUniqueRoomCode(maxAttempts = 12) {
-    for (let i = 0; i < maxAttempts; i++) {
-      const code = Math.random().toString(36).substring(2, 8).toUpperCase();
-      const exists = await this.roomRepo.findOne({ where: { code } });
-      if (!exists) return code;
-    }
-    throw new BadRequestException(
-      'Não foi possível gerar um código único para a sala.',
-    );
-  }
-
-  /**
-   * Escola cria sala + cria/garante professor gerenciado.
-   * Regras:
-   * - limite 10 salas por escola
-   * - 1 sala por professor (por escola)
-   * - se existir professor INDIVIDUAL com email, bloqueia
-   */
-  async createRoomAsSchool(
-    schoolId: string,
-    body: { roomName: string; teacherName: string; teacherEmail: string },
-  ) {
-    const sid = this.norm(schoolId);
-    const roomName = this.norm(body?.roomName);
-    const teacherName = this.norm(body?.teacherName);
-    const teacherEmail = this.emailNorm(body?.teacherEmail);
-
-    if (!roomName || !teacherName || !teacherEmail) {
-      throw new BadRequestException(
-        'Informe roomName, teacherName e teacherEmail.',
-      );
-    }
-    if (!teacherEmail.includes('@')) {
-      throw new BadRequestException('teacherEmail inválido.');
-    }
-
-    // escola existe e é school?
     const school = await this.userRepo.findOne({ where: { id: sid } });
     if (!school) throw new NotFoundException('Escola não encontrada.');
-    if (String(school.role || '').toLowerCase() !== 'school') {
-      throw new BadRequestException('Acesso inválido (não é escola).');
+    if (roleOf(school) !== 'school') throw new ForbiddenException('Apenas escola.');
+
+    const teacher = await this.userRepo.findOne({ where: { email } });
+    if (!teacher) throw new NotFoundException('Professor não encontrado pelo e-mail.');
+
+    if (roleOf(teacher) !== 'professor') {
+      throw new BadRequestException('Este e-mail não pertence a um professor.');
     }
 
-    // limite 10 salas por escola
-    const currentRooms = await this.roomRepo.count({
-      where: { ownerType: 'SCHOOL', schoolId: sid } as any,
-    });
-
-    if (currentRooms >= this.LIMIT_MAX_ROOMS_PER_SCHOOL) {
-      throw new BadRequestException(
-        `Limite atingido: no máximo ${this.LIMIT_MAX_ROOMS_PER_SCHOOL} salas por escola.`,
-      );
+    // ✅ precisa ser professor gerenciado e da MESMA escola
+    if (professorTypeOf(teacher) !== 'SCHOOL_MANAGED') {
+      throw new BadRequestException('Professor não é gerenciado por escola.');
     }
 
-    // professor já existe?
-    const existing = await this.userRepo.findOne({
-      where: { email: teacherEmail },
-    });
+    const teacherSchoolId = String((teacher as any)?.schoolId || '').trim();
+    if (teacherSchoolId !== sid) {
+      throw new ForbiddenException('Este professor não pertence a esta escola.');
+    }
 
+    // ✅ regra: escola só pode cadastrar 1 sala por professor
+    const existing = await this.roomRepo.findOne({ where: { professorId: teacher.id } });
     if (existing) {
-      const role = String(existing.role || '').toLowerCase();
-      const pType = String(existing.professorType || '').toUpperCase();
-
-      // se já existe professor individual, bloquear
-      if (role === 'professor' && (pType === '' || pType === 'INDIVIDUAL')) {
-        throw new BadRequestException(
-          'Já existe um professor individual com este e-mail. Não é possível cadastrar pela escola.',
-        );
-      }
-
-      // se for professor SCHOOL, tem que ser da mesma escola
-      if (role === 'professor' && pType === 'SCHOOL') {
-        const linkedSchoolId = existing.schoolId;
-        if (linkedSchoolId && String(linkedSchoolId) !== sid) {
-          throw new BadRequestException(
-            'Este professor já está vinculado a outra escola.',
-          );
-        }
-      }
-
-      // se for aluno/escola com esse email, bloquear
-      if (role !== 'professor') {
-        throw new BadRequestException(
-          'Este e-mail já está em uso por outro tipo de conta.',
-        );
-      }
+      throw new BadRequestException('Regra: já existe uma sala cadastrada para este professor.');
     }
 
-    let teacher: UserEntity;
+    const code = Math.random().toString(36).substring(2, 8).toUpperCase();
 
-    if (existing) {
-      teacher = existing;
-    } else {
-      // cria professor gerenciado com senha temporária
-      const tempPassword = Math.random().toString(36).slice(2) + 'A1!';
-      const hash = await bcrypt.hash(tempPassword, 10);
-
-      const created: UserEntity = this.userRepo.create({
-        name: teacherName,
-        email: teacherEmail,
-        password: hash,
-        role: 'professor',
-
-        professorType: 'SCHOOL',
-        schoolId: sid,
-        mustChangePassword: true,
-        trialMode: false,
-        isActive: true,
-
-        // decisão prática: professor gerenciado já nasce verificado
-        emailVerified: true,
-        emailVerifiedAt: new Date(),
-        emailVerifyTokenHash: null,
-        emailVerifyTokenExpiresAt: null,
-      });
-
-      teacher = await this.userRepo.save(created);
-    }
-
-    // regra 1 sala por professor (por escola)
-    const already = await this.roomRepo.findOne({
-      where: {
-        ownerType: 'SCHOOL',
-        schoolId: sid,
-        teacherId: teacher.id,
-      } as any,
-    });
-
-    if (already) {
-      throw new BadRequestException(
-        'Esta escola já possui uma sala cadastrada para este professor.',
-      );
-    }
-
-    const code = await this.generateUniqueRoomCode();
-
-    const roomCreated: RoomEntity = this.roomRepo.create({
-      name: roomName,
+    const room = this.roomRepo.create({
+      name,
       professorId: teacher.id,
       code,
-
-      ownerType: 'SCHOOL',
-      schoolId: sid,
-      teacherId: teacher.id,
-      teacherNameSnapshot: teacherName,
     });
 
-    const saved = await this.roomRepo.save(roomCreated);
+    const saved = await this.roomRepo.save(room);
 
     return {
       ok: true,
-      room: {
-        id: saved.id,
-        name: saved.name,
-        code: saved.code,
-        ownerType: saved.ownerType,
-        schoolId: saved.schoolId,
-        teacherId: saved.teacherId,
-        teacherName: saved.teacherNameSnapshot,
-        professorId: saved.professorId,
-      },
-      teacher: {
-        id: teacher.id,
-        name: teacher.name,
-        email: teacher.email,
-        professorType: teacher.professorType ?? null,
-        mustChangePassword: !!teacher.mustChangePassword,
-        schoolId: teacher.schoolId ?? null,
-      },
+      room: { id: saved.id, name: saved.name, code: saved.code },
+      teacher: { id: teacher.id, name: teacher.name, email: teacher.email },
     };
   }
 
-  async listRoomsBySchool(schoolId: string) {
-    const sid = this.norm(schoolId);
+  async listRooms(schoolId: string) {
+    const sid = String(schoolId || '').trim();
+    if (!sid) throw new BadRequestException('schoolId é obrigatório.');
 
-    const rooms = await this.roomRepo.find({
-      where: { ownerType: 'SCHOOL', schoolId: sid } as any,
-      order: { name: 'ASC' } as any,
+    // professores gerenciados desta escola
+    const teachers = await this.userRepo.find({
+      where: { role: 'professor' as any, schoolId: sid as any },
     });
 
-    return rooms.map((r) => ({
-      id: r.id,
-      name: r.name,
-      code: r.code,
-      teacherId: r.teacherId ?? null,
-      teacherName: r.teacherNameSnapshot ?? null,
-      professorId: r.professorId,
-    }));
+    const teacherIds = teachers.map((t) => t.id);
+    if (!teacherIds.length) return [];
+
+    const rooms = await this.roomRepo.find({ where: { professorId: In(teacherIds) } });
+    const teacherMap = new Map(teachers.map((t) => [t.id, t]));
+
+    return rooms.map((r) => {
+      const t = teacherMap.get(r.professorId);
+      return {
+        id: r.id,
+        name: r.name,
+        code: r.code,
+        professorId: r.professorId,
+        teacherName: t?.name ?? '',
+        teacherEmail: t?.email ?? '',
+      };
+    });
+  }
+
+  async roomAverage(roomId: string) {
+    const rid = String(roomId || '').trim();
+    if (!rid) throw new BadRequestException('roomId é obrigatório.');
+
+    const tasks = await this.taskRepo.find({ where: { roomId: rid } });
+    if (!tasks.length) return { ok: true, roomId: rid, average: null, count: 0 };
+
+    const taskIds = tasks.map((t) => t.id);
+
+    const essays = await this.essayRepo.find({
+      where: { taskId: In(taskIds), isDraft: false as any },
+    });
+
+    const scores = essays
+      .map((e: any) => (e.score == null ? null : Number(e.score)))
+      .filter((n) => typeof n === 'number' && !Number.isNaN(n)) as number[];
+
+    if (!scores.length) return { ok: true, roomId: rid, average: null, count: 0 };
+
+    const avg = Math.round(scores.reduce((a, b) => a + b, 0) / scores.length);
+
+    return { ok: true, roomId: rid, average: avg, count: scores.length };
   }
 }
