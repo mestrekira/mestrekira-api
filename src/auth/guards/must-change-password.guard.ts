@@ -23,4 +23,5 @@ export class MustChangePasswordGuard implements CanActivate {
 
     return true;
   }
-}v
+}
+
