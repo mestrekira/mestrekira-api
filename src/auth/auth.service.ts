@@ -153,6 +153,12 @@ async registerSchool(name: string, email: string, password: string) {
         mustChangePassword: !!(user as any).mustChangePassword,
       },
     };
+
+  const token = await this.jwt.signAsync({
+  sub: user.id,
+  role: (user.role || 'student').toLowerCase(),
+  mustChangePassword: !!(user as any).mustChangePassword,
+});
   }
 
   // -----------------------------
