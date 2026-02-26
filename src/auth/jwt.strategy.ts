@@ -8,6 +8,7 @@ import { UserEntity } from '../users/user.entity';
 type JwtPayload = {
   sub: string;
   role: string;
+  mustChangePassword?: boolean;
 };
 
 @Injectable()
