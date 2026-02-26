@@ -165,5 +165,25 @@ firstPassword(@Req() req: any, @Body('password') password: string) {
   ) {
     return this.auth.resetPassword(token, newPassword);
   }
-  
+
+  /**
+ * ✅ Trocar senha no primeiro acesso (professor gerenciado)
+ * POST /auth/change-password
+ * Authorization: Bearer <token>
+ * body: { currentPassword?, newPassword }
+ *
+ * - Para professor SCHOOL: currentPassword pode ser opcional (porque é senha temporária),
+ *   mas é mais seguro exigir (recomendado). Vou exigir.
+ */
+@UseGuards(AuthGuard('jwt'))
+@Post('change-password')
+async changePassword(
+  @Req() req: Request,
+  @Body('currentPassword') currentPassword: string,
+  @Body('newPassword') newPassword: string,
+) {
+  const uid = String((req as any)?.user?.id || '').trim();
+  if (!uid) throw new UnauthorizedException('Sessão inválida.');
+  return this.auth.changePassword(uid, currentPassword, newPassword);
+}
 }
