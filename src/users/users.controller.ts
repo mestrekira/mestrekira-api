@@ -25,11 +25,15 @@ export class UsersController {
   ) {}
 
   // ----------------------------------------------------
-  // Helpers
+  // Helpers (anti "undefined"/"null" e trims)
   // ----------------------------------------------------
   private norm(v: any) {
     const s = String(v ?? '').trim();
     return s && s !== 'undefined' && s !== 'null' ? s : '';
+  }
+
+  private normEmail(v: any) {
+    return this.norm(v).toLowerCase();
   }
 
   private getTokenUser(req: Request) {
@@ -47,9 +51,26 @@ export class UsersController {
     }
   }
 
+  private assertEmailPassword(name: any, email: any, password: any) {
+    const n = this.norm(name);
+    const e = this.normEmail(email);
+    const p = String(password ?? '');
+
+    if (!n || !e || !p) {
+      throw new BadRequestException('Preencha nome, e-mail e senha.');
+    }
+    if (!e.includes('@')) {
+      throw new BadRequestException('E-mail inválido.');
+    }
+    if (p.length < 8) {
+      throw new BadRequestException('Senha deve ter no mínimo 8 caracteres.');
+    }
+    return { n, e, p };
+  }
+
   // ----------------------------------------------------
-  // CADASTRO (mantido por compatibilidade com seu front)
-  // Recomendo migrar para AuthController (/auth/register-*)
+  // CADASTRO (compatibilidade)
+  // Recomendado no futuro: mover tudo para AuthController (/auth/register-*)
   // ----------------------------------------------------
   @Post('professor')
   createProfessor(
@@ -57,10 +78,8 @@ export class UsersController {
     @Body('email') email: string,
     @Body('password') password: string,
   ) {
-    if (!name || !email || !password) {
-      throw new BadRequestException('Preencha nome, e-mail e senha.');
-    }
-    return this.auth.registerProfessor(name, email, password);
+    const { n, e, p } = this.assertEmailPassword(name, email, password);
+    return this.auth.registerProfessor(n, e, p);
   }
 
   @Post('student')
@@ -69,37 +88,38 @@ export class UsersController {
     @Body('email') email: string,
     @Body('password') password: string,
   ) {
-    if (!name || !email || !password) {
-      throw new BadRequestException('Preencha nome, e-mail e senha.');
-    }
-    return this.auth.registerStudent(name, email, password);
+    const { n, e, p } = this.assertEmailPassword(name, email, password);
+    return this.auth.registerStudent(n, e, p);
   }
 
-  // ✅ (opcional) se você já tem /auth/register-school, este endpoint pode ser removido
+  /**
+   * ✅ (opcional) Cadastro de escola por /users/school
+   * Se você já usa /auth/register-school, pode remover este endpoint no futuro.
+   */
   @Post('school')
   createSchool(
     @Body('name') name: string,
     @Body('email') email: string,
     @Body('password') password: string,
   ) {
-    if (!name || !email || !password) {
-      throw new BadRequestException('Preencha nome, e-mail e senha.');
-    }
-    // precisa existir no AuthService: registerSchool(name,email,password)
-    return this.auth.registerSchool(name, email, password);
+    const { n, e, p } = this.assertEmailPassword(name, email, password);
+    return this.auth.registerSchool(n, e, p);
   }
 
   // ----------------------------------------------------
-  // LOGIN (mantido por compatibilidade)
-  // Recomendo usar /auth/login e remover este depois
+  // LOGIN (compatibilidade)
+  // Ideal: usar /auth/login e remover este endpoint depois
   // ----------------------------------------------------
   @Post('login')
   async login(@Body('email') email: string, @Body('password') password: string) {
-    return this.auth.login(email, password);
+    const e = this.normEmail(email);
+    const p = String(password ?? '');
+    if (!e || !p) throw new BadRequestException('Preencha e-mail e senha.');
+    return this.auth.login(e, p);
   }
 
   // ----------------------------------------------------
-  // ✅ NOVO PADRÃO SEGURO: /users/me
+  // ✅ PADRÃO SEGURO: /users/me
   // ----------------------------------------------------
   @UseGuards(JwtAuthGuard)
   @Get('me')
@@ -118,7 +138,15 @@ export class UsersController {
     const { id } = this.getTokenUser(req);
     if (!id) throw new ForbiddenException('Token inválido.');
 
-    return this.usersService.updateUser(id, body?.email?.trim(), body?.password);
+    const email = body?.email != null ? this.normEmail(body.email) : undefined;
+    const password = body?.password != null ? String(body.password) : undefined;
+
+    // evita update “vazio”
+    if (!email && !password) {
+      throw new BadRequestException('Informe email e/ou password para atualizar.');
+    }
+
+    return this.usersService.updateUser(id, email, password);
   }
 
   @UseGuards(JwtAuthGuard)
@@ -126,12 +154,11 @@ export class UsersController {
   removeMe(@Req() req: Request) {
     const { id } = this.getTokenUser(req);
     if (!id) throw new ForbiddenException('Token inválido.');
-
     return this.usersService.removeUser(id);
   }
 
   /**
-   * ✅ Opcional (recomendado): confirmar exclusão com senha
+   * ✅ Confirmar exclusão com senha
    * DELETE /users/me/confirm  body: { password }
    */
   @UseGuards(JwtAuthGuard)
@@ -147,7 +174,8 @@ export class UsersController {
   }
 
   // ----------------------------------------------------
-  // ROTAS LEGADAS COM :id (agora protegidas)
+  // ROTAS LEGADAS COM :id (AGORA PROTEGIDAS)
+  // - somente o próprio pode acessar
   // ----------------------------------------------------
   @UseGuards(JwtAuthGuard)
   @Get(':id')
@@ -169,7 +197,14 @@ export class UsersController {
     if (!uid) throw new BadRequestException('id é obrigatório.');
     this.assertSelfOrThrow(req, uid);
 
-    return this.usersService.updateUser(uid, body?.email?.trim(), body?.password);
+    const email = body?.email != null ? this.normEmail(body.email) : undefined;
+    const password = body?.password != null ? String(body.password) : undefined;
+
+    if (!email && !password) {
+      throw new BadRequestException('Informe email e/ou password para atualizar.');
+    }
+
+    return this.usersService.updateUser(uid, email, password);
   }
 
   @UseGuards(JwtAuthGuard)
@@ -178,19 +213,17 @@ export class UsersController {
     const uid = this.norm(id);
     if (!uid) throw new BadRequestException('id é obrigatório.');
     this.assertSelfOrThrow(req, uid);
-
     return this.usersService.removeUser(uid);
   }
 
   /**
-   * ⚠️ ADMIN ONLY (se você ainda não tem admin, é melhor remover)
-   * Por enquanto, vou PROTEGER e bloquear geral:
+   * ⚠️ ADMIN ONLY
+   * Por segurança, bloquear por padrão.
+   * Depois a gente cria um AdminGuard (x-auth-secret ou role admin).
    */
   @UseGuards(JwtAuthGuard)
   @Get()
   findAll(@Req() req: Request) {
-    // Sem um role/admin guard, isso é perigoso.
-    // Melhor bloquear por padrão.
     const { role } = this.getTokenUser(req);
     throw new ForbiddenException(
       `Rota /users (listar todos) desativada por segurança. Role atual: ${role || 'unknown'}.`,
