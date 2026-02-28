@@ -1,44 +1,65 @@
-import { Entity, PrimaryGeneratedColumn, Column,  CreateDateColumn, UpdateDateColumn } from 'typeorm';
+import {
+  Entity,
+  PrimaryGeneratedColumn,
+  Column,
+  CreateDateColumn,
+  UpdateDateColumn,
+  Index,
+} from 'typeorm';
 
-@Entity()
+@Entity({ name: 'room_entity' })
 export class RoomEntity {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
-  @Column()
+  @Column({ type: 'text' })
   name: string;
 
   /**
    * compatível com o sistema atual:
    * salas do professor usam professorId
    */
-  @Column()
+  @Index()
+  @Column({ type: 'uuid' })
   professorId: string;
 
-  @Column({ unique: true })
+  @Index({ unique: true })
+  @Column({ type: 'text', unique: true })
   code: string;
 
   // ================================
-  // ✅ Novos campos para Perfil Escolar
+  // ✅ Perfil Escolar
   // ================================
   @Column({ type: 'text', default: 'PROFESSOR' })
   ownerType: string; // 'PROFESSOR' | 'SCHOOL'
 
+  @Index()
   @Column({ type: 'uuid', nullable: true })
   schoolId: string | null;
 
   /**
    * quando ownerType='SCHOOL', aponta para o professor responsável
    */
+  @Index()
   @Column({ type: 'uuid', nullable: true })
   teacherId: string | null;
 
   @Column({ type: 'text', nullable: true })
   teacherNameSnapshot: string | null;
 
-  @CreateDateColumn({ type: 'timestamptz' })
-createdAt: Date;
+  /**
+   * ✅ Ano letivo (filtro do painel escolar)
+   */
+  @Index()
+  @Column({ type: 'uuid', nullable: true })
+  schoolYearId: string | null;
 
-@UpdateDateColumn({ type: 'timestamptz' })
-updatedAt: Date;
+  // ================================
+  // ✅ Datas automáticas (para "Criado em: ...")
+  // ================================
+  @CreateDateColumn({ type: 'timestamptz' })
+  createdAt: Date;
+
+  @UpdateDateColumn({ type: 'timestamptz' })
+  updatedAt: Date;
 }
