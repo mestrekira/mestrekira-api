@@ -1,4 +1,4 @@
-import { Entity, PrimaryGeneratedColumn, Column } from 'typeorm';
+import { Entity, PrimaryGeneratedColumn, Column,  CreateDateColumn, UpdateDateColumn } from 'typeorm';
 
 @Entity()
 export class RoomEntity {
@@ -35,4 +35,10 @@ export class RoomEntity {
 
   @Column({ type: 'text', nullable: true })
   teacherNameSnapshot: string | null;
+
+  @CreateDateColumn({ type: 'timestamptz' })
+createdAt: Date;
+
+@UpdateDateColumn({ type: 'timestamptz' })
+updatedAt: Date;
 }
