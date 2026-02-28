@@ -25,7 +25,6 @@ export class AuthService {
     private readonly users: UsersService,
 
     private readonly mail: MailService,
-
     private readonly jwt: JwtService,
 
     @InjectRepository(UserEntity)
@@ -47,8 +46,6 @@ export class AuthService {
   }
 
   private getWebUrl() {
-    // base do frontend (onde ficam os HTMLs públicos)
-    // Ex.: https://www.mestrekira.com.br/app/frontend
     return (
       (process.env.APP_WEB_URL || '').trim() ||
       'https://www.mestrekira.com.br/app/frontend'
@@ -88,6 +85,7 @@ export class AuthService {
 
     return {
       ...created,
+      ok: true,
       message: 'Cadastro criado. Confirme seu e-mail para acessar.',
     };
   }
@@ -98,19 +96,21 @@ export class AuthService {
 
     return {
       ...created,
+      ok: true,
       message: 'Cadastro criado. Confirme seu e-mail para acessar.',
     };
   }
-  
-async registerSchool(name: string, email: string, password: string) {
-  const created = await this.users.createSchool(name, email, password);
-  await this.requestEmailVerification(created.email);
 
-  return {
-    ...created,
-    message: 'Cadastro da escola criado. Confirme seu e-mail para acessar.',
-  };
-}
+  async registerSchool(name: string, email: string, password: string) {
+    const created = await this.users.createSchool(name, email, password);
+    await this.requestEmailVerification(created.email);
+
+    return {
+      ...created,
+      ok: true,
+      message: 'Cadastro da escola criado. Confirme seu e-mail para acessar.',
+    };
+  }
 
   // -----------------------------
   // Login (bloqueia se não verificado) + JWT
@@ -119,11 +119,12 @@ async registerSchool(name: string, email: string, password: string) {
     const user = await this.users.validateUser(email, password);
 
     if (!user) {
-      return { error: 'Usuário ou senha inválidos' };
+      return { ok: false, error: 'Usuário ou senha inválidos' };
     }
 
     if (!user.emailVerified) {
       return {
+        ok: false,
         error:
           'Seu e-mail ainda não foi confirmado. Verifique sua caixa de entrada (e Spam) ou solicite um novo link.',
         emailVerified: false,
@@ -131,13 +132,16 @@ async registerSchool(name: string, email: string, password: string) {
     }
 
     const role = this.roleLower((user as any).role || 'student');
+    const mustChangePassword = !!(user as any).mustChangePassword;
 
+    // ✅ payload mais compatível com seus controllers/guards
     const token = await this.jwt.signAsync({
       sub: user.id,
+      id: user.id,
       role,
+      mustChangePassword,
     });
 
-    // ✅ devolve extras para o front (não quebra ninguém que ignore)
     return {
       ok: true,
       message: 'Login realizado.',
@@ -150,7 +154,8 @@ async registerSchool(name: string, email: string, password: string) {
 
         professorType: (user as any).professorType ?? null,
         schoolId: (user as any).schoolId ?? null,
-        mustChangePassword: !!(user as any).mustChangePassword,
+        mustChangePassword,
+        emailVerified: !!user.emailVerified,
       },
     };
   }
@@ -179,9 +184,7 @@ async registerSchool(name: string, email: string, password: string) {
       },
     );
 
-    const verifyUrl = `${this.getApiUrl()}/auth/verify-email?token=${encodeURIComponent(
-      rawToken,
-    )}`;
+    const verifyUrl = `${this.getApiUrl()}/auth/verify-email?token=${encodeURIComponent(rawToken)}`;
 
     await this.mail.sendEmailVerification({
       to: user.email,
@@ -281,9 +284,7 @@ async registerSchool(name: string, email: string, password: string) {
       },
     );
 
-    const verifyUrl = `${this.getApiUrl()}/auth/verify-email?token=${encodeURIComponent(
-      rawToken,
-    )}`;
+    const verifyUrl = `${this.getApiUrl()}/auth/verify-email?token=${encodeURIComponent(rawToken)}`;
 
     await this.mail.sendEmailVerification({
       to: user.email,
@@ -299,13 +300,6 @@ async registerSchool(name: string, email: string, password: string) {
   // =========================================================
   // ✅ ESQUECI MINHA SENHA
   // =========================================================
-
-  /**
-   * POST /auth/request-password-reset
-   * body: { email, role? }
-   *
-   * Segurança: retorna ok mesmo se o e-mail não existir (evita enumeração).
-   */
   async requestPasswordReset(email: string, role?: string) {
     const normalized = this.normalizeEmail(email);
     if (!normalized || !normalized.includes('@')) {
@@ -314,7 +308,7 @@ async registerSchool(name: string, email: string, password: string) {
 
     const user = await this.userRepo.findOne({ where: { email: normalized } });
 
-    // sempre responde ok (não revela se existe)
+    // ✅ sempre responde ok (não revela se existe)
     if (!user) {
       return { ok: true, message: 'Se o e-mail existir, enviaremos um link.' };
     }
@@ -331,10 +325,8 @@ async registerSchool(name: string, email: string, password: string) {
       },
     );
 
-    // ✅ role opcional (para redirecionar para o login correto)
     const r = String(role || '').trim().toLowerCase();
-    const safeRole =
-      r === 'professor' || r === 'student' || r === 'school' ? r : '';
+    const safeRole = r === 'professor' || r === 'student' || r === 'school' ? r : '';
 
     const base = this.getWebUrl();
     const resetUrl =
@@ -350,10 +342,6 @@ async registerSchool(name: string, email: string, password: string) {
     return { ok: true, message: 'Se o e-mail existir, enviaremos um link.' };
   }
 
-  /**
-   * POST /auth/reset-password
-   * body: { token, newPassword }
-   */
   async resetPassword(token: string, newPassword: string) {
     const raw = String(token || '').trim();
     if (!raw) throw new BadRequestException('Token ausente.');
@@ -391,71 +379,77 @@ async registerSchool(name: string, email: string, password: string) {
     return { ok: true, message: 'Senha redefinida com sucesso.' };
   }
 
+  /**
+   * ✅ Primeiro acesso (professor cadastrado pela escola)
+   * - define senha e remove mustChangePassword
+   */
   async firstPassword(userId: string, newPassword: string) {
-  const id = String(userId || '').trim();
-  const pass = String(newPassword || '');
+    const id = String(userId || '').trim();
+    const pass = String(newPassword || '');
 
-  if (!id) throw new BadRequestException('Sessão inválida.');
-  if (!pass || pass.length < 8) {
-    throw new BadRequestException('Senha deve ter no mínimo 8 caracteres.');
+    if (!id) throw new BadRequestException('Sessão inválida.');
+    if (!pass || pass.length < 8) {
+      throw new BadRequestException('Senha deve ter no mínimo 8 caracteres.');
+    }
+
+    const user = await this.userRepo.findOne({ where: { id } });
+    if (!user) throw new NotFoundException('Usuário não encontrado.');
+
+    const role = String(user.role || '').toLowerCase();
+    if (role !== 'professor') {
+      throw new BadRequestException('Apenas professores usam este endpoint.');
+    }
+
+    const pType = String(user.professorType || '').toUpperCase();
+    if (pType !== 'SCHOOL') {
+      throw new BadRequestException('Apenas professores da escola usam este endpoint.');
+    }
+
+    if (!user.mustChangePassword) {
+      return { ok: true, message: 'Senha já estava atualizada.' };
+    }
+
+    const hash = await bcrypt.hash(pass, 10);
+
+    await this.userRepo.update(
+      { id: user.id },
+      { password: hash, mustChangePassword: false },
+    );
+
+    return { ok: true, message: 'Senha definida com sucesso.' };
   }
 
-  const user = await this.userRepo.findOne({ where: { id } });
-  if (!user) throw new NotFoundException('Usuário não encontrado.');
-
-  const role = String(user.role || '').toLowerCase();
-  if (role !== 'professor') {
-    throw new BadRequestException('Apenas professores usam este endpoint.');
-  }
-
-  const pType = String(user.professorType || '').toUpperCase();
-  if (pType !== 'SCHOOL') {
-    throw new BadRequestException('Apenas professores da escola usam este endpoint.');
-  }
-
-  if (!user.mustChangePassword) {
-    return { ok: true, message: 'Senha já estava atualizada.' };
-  }
-
-  const bcrypt = await import('bcrypt');
-  const hash = await bcrypt.hash(pass, 10);
-
-  await this.userRepo.update(
-    { id: user.id },
-    { password: hash, mustChangePassword: false },
-  );
-
-  return { ok: true, message: 'Senha definida com sucesso.' };
-}
-
+  /**
+   * ✅ Troca de senha (com senha atual)
+   */
   async changePassword(userId: string, currentPassword: string, newPassword: string) {
-  const id = String(userId || '').trim();
-  if (!id) throw new BadRequestException('userId ausente.');
+    const id = String(userId || '').trim();
+    if (!id) throw new BadRequestException('userId ausente.');
 
-  const curr = String(currentPassword || '');
-  const pass = String(newPassword || '');
+    const curr = String(currentPassword || '');
+    const pass = String(newPassword || '');
 
-  if (!curr) throw new BadRequestException('Senha atual é obrigatória.');
-  if (!pass || pass.length < 8) {
-    throw new BadRequestException('Senha deve ter no mínimo 8 caracteres.');
+    if (!curr) throw new BadRequestException('Senha atual é obrigatória.');
+    if (!pass || pass.length < 8) {
+      throw new BadRequestException('Senha deve ter no mínimo 8 caracteres.');
+    }
+
+    const user = await this.userRepo.findOne({ where: { id } });
+    if (!user) throw new NotFoundException('Usuário não encontrado.');
+
+    const ok = await bcrypt.compare(curr, String(user.password || ''));
+    if (!ok) throw new BadRequestException('Senha atual inválida.');
+
+    const hash = await bcrypt.hash(pass, 10);
+
+    await this.userRepo.update(
+      { id },
+      {
+        password: hash,
+        mustChangePassword: false,
+      } as any,
+    );
+
+    return { ok: true, message: 'Senha alterada com sucesso.' };
   }
-
-  const user = await this.userRepo.findOne({ where: { id } });
-  if (!user) throw new NotFoundException('Usuário não encontrado.');
-
-  const ok = await bcrypt.compare(curr, String(user.password || ''));
-  if (!ok) throw new BadRequestException('Senha atual inválida.');
-
-  const hash = await bcrypt.hash(pass, 10);
-
-  await this.userRepo.update(
-    { id },
-    {
-      password: hash,
-      mustChangePassword: false,
-    } as any,
-  );
-
-  return { ok: true, message: 'Senha alterada com sucesso.' };
-}
 }
