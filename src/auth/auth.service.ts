@@ -46,6 +46,7 @@ export class AuthService {
   }
 
   private getWebUrl() {
+    // Ex.: https://www.mestrekira.com.br/app/frontend
     return (
       (process.env.APP_WEB_URL || '').trim() ||
       'https://www.mestrekira.com.br/app/frontend'
@@ -64,16 +65,12 @@ export class AuthService {
     return String(role || '').trim().toLowerCase();
   }
 
-  private async getUserByEmailOrThrow(email: string) {
+  private async getUserByEmail(email: string) {
     const normalized = this.normalizeEmail(email);
     if (!normalized || !normalized.includes('@')) {
       throw new BadRequestException('E-mail inválido.');
     }
-
-    const user = await this.userRepo.findOne({ where: { email: normalized } });
-    if (!user) throw new NotFoundException('Usuário não encontrado.');
-
-    return user;
+    return this.userRepo.findOne({ where: { email: normalized } });
   }
 
   // -----------------------------
@@ -84,9 +81,10 @@ export class AuthService {
     await this.requestEmailVerification(created.email);
 
     return {
-      ...created,
       ok: true,
       message: 'Cadastro criado. Confirme seu e-mail para acessar.',
+      userId: created.id,
+      email: created.email,
     };
   }
 
@@ -95,9 +93,10 @@ export class AuthService {
     await this.requestEmailVerification(created.email);
 
     return {
-      ...created,
       ok: true,
       message: 'Cadastro criado. Confirme seu e-mail para acessar.',
+      userId: created.id,
+      email: created.email,
     };
   }
 
@@ -106,9 +105,10 @@ export class AuthService {
     await this.requestEmailVerification(created.email);
 
     return {
-      ...created,
       ok: true,
       message: 'Cadastro da escola criado. Confirme seu e-mail para acessar.',
+      userId: created.id,
+      email: created.email,
     };
   }
 
@@ -132,14 +132,12 @@ export class AuthService {
     }
 
     const role = this.roleLower((user as any).role || 'student');
-    const mustChangePassword = !!(user as any).mustChangePassword;
 
-    // ✅ payload mais compatível com seus controllers/guards
     const token = await this.jwt.signAsync({
       sub: user.id,
-      id: user.id,
       role,
-      mustChangePassword,
+      // extras úteis para guards (opcional)
+      mustChangePassword: !!(user as any).mustChangePassword,
     });
 
     return {
@@ -154,17 +152,22 @@ export class AuthService {
 
         professorType: (user as any).professorType ?? null,
         schoolId: (user as any).schoolId ?? null,
-        mustChangePassword,
-        emailVerified: !!user.emailVerified,
+        mustChangePassword: !!(user as any).mustChangePassword,
       },
     };
   }
 
   // -----------------------------
-  // Reenvio de verificação (gera token + envia e-mail)
+  // Reenvio de verificação
+  // Segurança: não revela se email existe (evita enumeração)
   // -----------------------------
   async requestEmailVerification(email: string) {
-    const user = await this.getUserByEmailOrThrow(email);
+    const user = await this.getUserByEmail(email);
+
+    // ✅ sempre responde ok
+    if (!user) {
+      return { ok: true, message: 'Se o e-mail existir, enviaremos um link.' };
+    }
 
     if (user.emailVerified) {
       return { ok: true, message: 'E-mail já verificado.' };
@@ -194,13 +197,12 @@ export class AuthService {
 
     return {
       ok: true,
-      message: 'E-mail de verificação enviado.',
-      sentTo: user.email,
+      message: 'Se o e-mail existir, enviaremos um link.',
     };
   }
 
   // -----------------------------
-  // Confirmação via token (link do e-mail)
+  // Confirmação via token
   // -----------------------------
   async verifyEmail(token: string) {
     const raw = String(token || '').trim();
@@ -213,9 +215,7 @@ export class AuthService {
     });
 
     if (!user) throw new BadRequestException('Token inválido.');
-    if (!user.emailVerifyTokenExpiresAt) {
-      throw new BadRequestException('Token inválido.');
-    }
+    if (!user.emailVerifyTokenExpiresAt) throw new BadRequestException('Token inválido.');
     if (new Date() > new Date(user.emailVerifyTokenExpiresAt)) {
       throw new BadRequestException('Token expirado. Solicite um novo.');
     }
@@ -234,7 +234,7 @@ export class AuthService {
   }
 
   // -----------------------------
-  // (Opcional) resetar verificação (se trocar e-mail)
+  // (Opcional) reset verificação
   // -----------------------------
   async resetEmailVerification(userId: string) {
     const id = String(userId || '').trim();
@@ -257,7 +257,7 @@ export class AuthService {
   }
 
   // -----------------------------
-  // ✅ Admin debug: envia verificação por userId
+  // Admin debug: envia verificação por userId
   // -----------------------------
   async adminSendVerifyByUserId(userId: string) {
     const id = String(userId || '').trim();
@@ -293,12 +293,11 @@ export class AuthService {
     });
 
     this.logger.log(`Admin verify mail sent to ${user.email} (uid=${user.id})`);
-
     return { ok: true, sentTo: user.email, verifyUrl };
   }
 
   // =========================================================
-  // ✅ ESQUECI MINHA SENHA
+  // ESQUECI MINHA SENHA
   // =========================================================
   async requestPasswordReset(email: string, role?: string) {
     const normalized = this.normalizeEmail(email);
@@ -308,7 +307,7 @@ export class AuthService {
 
     const user = await this.userRepo.findOne({ where: { email: normalized } });
 
-    // ✅ sempre responde ok (não revela se existe)
+    // sempre responde ok (não revela se existe)
     if (!user) {
       return { ok: true, message: 'Se o e-mail existir, enviaremos um link.' };
     }
@@ -358,9 +357,7 @@ export class AuthService {
     });
 
     if (!user) throw new BadRequestException('Token inválido.');
-    if (!user.passwordResetTokenExpiresAt) {
-      throw new BadRequestException('Token inválido.');
-    }
+    if (!user.passwordResetTokenExpiresAt) throw new BadRequestException('Token inválido.');
     if (new Date() > new Date(user.passwordResetTokenExpiresAt)) {
       throw new BadRequestException('Token expirado. Solicite um novo.');
     }
@@ -380,8 +377,7 @@ export class AuthService {
   }
 
   /**
-   * ✅ Primeiro acesso (professor cadastrado pela escola)
-   * - define senha e remove mustChangePassword
+   * Primeiro acesso (professor SCHOOL) → define senha e libera mustChangePassword
    */
   async firstPassword(userId: string, newPassword: string) {
     const id = String(userId || '').trim();
@@ -413,15 +409,12 @@ export class AuthService {
 
     await this.userRepo.update(
       { id: user.id },
-      { password: hash, mustChangePassword: false },
+      { password: hash, mustChangePassword: false } as any,
     );
 
     return { ok: true, message: 'Senha definida com sucesso.' };
   }
 
-  /**
-   * ✅ Troca de senha (com senha atual)
-   */
   async changePassword(userId: string, currentPassword: string, newPassword: string) {
     const id = String(userId || '').trim();
     if (!id) throw new BadRequestException('userId ausente.');
@@ -444,10 +437,7 @@ export class AuthService {
 
     await this.userRepo.update(
       { id },
-      {
-        password: hash,
-        mustChangePassword: false,
-      } as any,
+      { password: hash, mustChangePassword: false } as any,
     );
 
     return { ok: true, message: 'Senha alterada com sucesso.' };
