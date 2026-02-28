@@ -13,7 +13,7 @@ import { CleanupModule } from './cleanup/cleanup.module';
 import { PdfModule } from './pdf/pdf.module';
 import { SchoolsModule } from './schools/schools.module';
 import { SchoolTeacherModule } from './school-teacher/school-teacher.module';
-import { SchoolDashboardModule } from './school-dashboard/school-dashboard.module;
+import { SchoolDashboardModule } from './school-dashboard/school-dashboard.module';
 import { AdminModule } from './admin/admin.module';
 
 const hasDbUrl =
@@ -83,6 +83,7 @@ console.log(
   ],
 })
 export class AppModule {}
+
 
 
 
