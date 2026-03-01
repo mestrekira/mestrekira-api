@@ -65,7 +65,7 @@ export class UsersService {
 
     if (!name?.trim()) throw new BadRequestException('Nome é obrigatório.');
     if (!email.includes('@')) throw new BadRequestException('E-mail inválido.');
-    if (!password || password.length < 8) {
+    if (!password || String(password).length < 8) {
       throw new BadRequestException('Senha deve ter no mínimo 8 caracteres.');
     }
 
@@ -75,7 +75,7 @@ export class UsersService {
     const passwordHash = await bcrypt.hash(String(password), 10);
 
     const user: UserEntity = this.userRepo.create({
-      name,
+      name: String(name).trim(),
       email,
       password: passwordHash,
       role: 'professor',
@@ -113,7 +113,7 @@ export class UsersService {
 
     if (!name?.trim()) throw new BadRequestException('Nome é obrigatório.');
     if (!email.includes('@')) throw new BadRequestException('E-mail inválido.');
-    if (!password || password.length < 8) {
+    if (!password || String(password).length < 8) {
       throw new BadRequestException('Senha deve ter no mínimo 8 caracteres.');
     }
 
@@ -123,7 +123,7 @@ export class UsersService {
     const passwordHash = await bcrypt.hash(String(password), 10);
 
     const user: UserEntity = this.userRepo.create({
-      name,
+      name: String(name).trim(),
       email,
       password: passwordHash,
       role: 'student',
@@ -162,7 +162,7 @@ export class UsersService {
     if (!name?.trim())
       throw new BadRequestException('Nome da escola é obrigatório.');
     if (!email.includes('@')) throw new BadRequestException('E-mail inválido.');
-    if (!password || password.length < 8) {
+    if (!password || String(password).length < 8) {
       throw new BadRequestException('Senha deve ter no mínimo 8 caracteres.');
     }
 
@@ -172,7 +172,7 @@ export class UsersService {
     const passwordHash = await bcrypt.hash(String(password), 10);
 
     const user: UserEntity = this.userRepo.create({
-      name,
+      name: String(name).trim(),
       email,
       password: passwordHash,
       role: 'school',
@@ -180,7 +180,7 @@ export class UsersService {
       professorType: null,
       trialMode: false,
       mustChangePassword: false,
-      schoolId: null,
+      schoolId: null, // escola não “pertence” a outra escola
       isActive: true,
       paymentCustomerId: null,
 
@@ -214,6 +214,11 @@ export class UsersService {
     return this.userRepo.find();
   }
 
+  /**
+   * ✅ Login:
+   * - aceita bcrypt (padrão)
+   * - aceita senha “legada” em texto e faz upgrade automático para bcrypt
+   */
   async validateUser(email: string, password: string) {
     const user = await this.findByEmail(email);
     if (!user) return null;
@@ -227,6 +232,7 @@ export class UsersService {
       return user;
     }
 
+    // legado (texto)
     if (stored !== incoming) return null;
 
     const newHash = await bcrypt.hash(incoming, 10);
@@ -274,6 +280,7 @@ export class UsersService {
         user.email = newEmail;
         emailChanged = true;
 
+        // reset verificação
         user.emailVerified = false;
         user.emailVerifiedAt = null;
         user.emailVerifyTokenHash = null;
@@ -289,6 +296,7 @@ export class UsersService {
 
       user.password = await bcrypt.hash(p, 10);
 
+      // ✅ se era professor da escola e precisava trocar senha, libera o sistema
       if (user.mustChangePassword) {
         user.mustChangePassword = false;
       }
@@ -299,6 +307,35 @@ export class UsersService {
     return { ok: true, emailChanged };
   }
 
+  // -----------------------------
+  // Remoção / Exclusão
+  // -----------------------------
+
+  /**
+   * Helper: apaga tudo ligado a um conjunto de salas
+   */
+  private async deleteRoomsCascade(manager: any, roomIds: string[]) {
+    if (!roomIds.length) return;
+
+    const tasks = await manager.find(TaskEntity, {
+      where: { roomId: In(roomIds) },
+    });
+    const taskIds = tasks.map((t) => t.id);
+
+    if (taskIds.length > 0) {
+      await manager
+        .createQueryBuilder()
+        .delete()
+        .from(EssayEntity)
+        .where('"taskId" IN (:...taskIds)', { taskIds })
+        .execute();
+    }
+
+    await manager.delete(TaskEntity, { roomId: In(roomIds) });
+    await manager.delete(EnrollmentEntity, { roomId: In(roomIds) });
+    await manager.delete(RoomEntity, { id: In(roomIds) });
+  }
+
   async removeUser(id: string) {
     const user = await this.userRepo.findOne({ where: { id } });
     if (!user) throw new NotFoundException('Usuário não encontrado');
@@ -306,6 +343,9 @@ export class UsersService {
     const role = normalizeRole(user.role);
 
     await this.dataSource.transaction(async (manager) => {
+      // =========================
+      // STUDENT
+      // =========================
       if (role === 'student') {
         await manager.delete(EssayEntity, { studentId: id });
         await manager.delete(EnrollmentEntity, { studentId: id });
@@ -313,30 +353,52 @@ export class UsersService {
         return;
       }
 
+      // =========================
+      // SCHOOL
+      // =========================
+      if (role === 'school') {
+        // 1) apaga salas que pertencem à escola (novo modelo)
+        //    (se suas salas antigas não tiverem schoolId preenchido, você pode usar professorId/teacherId como fallback depois)
+        const schoolRooms = await manager.find(RoomEntity, {
+          where: { schoolId: id as any }, // se schoolId estiver null em salas antigas, não pega
+        });
+        const schoolRoomIds = schoolRooms.map((r) => r.id);
+        await this.deleteRoomsCascade(manager, schoolRoomIds);
+
+        // 2) (recomendado) apaga professores gerenciados pela escola
+        //    Isso evita sobrar contas órfãs quando a escola se excluir.
+        const managedTeachers = await manager.find(UserEntity, {
+          where: {
+            role: 'professor' as any,
+            professorType: 'SCHOOL' as any,
+            schoolId: id as any,
+          },
+        });
+
+        for (const t of managedTeachers) {
+          // apaga salas do professor (modelo antigo/professorId)
+          const tRooms = await manager.find(RoomEntity, { where: { professorId: t.id } });
+          const tRoomIds = tRooms.map((r) => r.id);
+          await this.deleteRoomsCascade(manager, tRoomIds);
+
+          await manager.delete(UserEntity, { id: t.id });
+        }
+
+        // 3) apaga a própria escola
+        await manager.delete(UserEntity, { id });
+        return;
+      }
+
+      // =========================
+      // PROFESSOR
+      // =========================
+      // (modelo atual: salas por professorId)
       const rooms = await manager.find(RoomEntity, {
         where: { professorId: id },
       });
+
       const roomIds = rooms.map((r) => r.id);
-
-      if (roomIds.length > 0) {
-        const tasks = await manager.find(TaskEntity, {
-          where: { roomId: In(roomIds) },
-        });
-        const taskIds = tasks.map((t) => t.id);
-
-        if (taskIds.length > 0) {
-          await manager
-            .createQueryBuilder()
-            .delete()
-            .from(EssayEntity)
-            .where('"taskId" IN (:...taskIds)', { taskIds })
-            .execute();
-        }
-
-        await manager.delete(TaskEntity, { roomId: In(roomIds) });
-        await manager.delete(EnrollmentEntity, { roomId: In(roomIds) });
-        await manager.delete(RoomEntity, { id: In(roomIds) });
-      }
+      await this.deleteRoomsCascade(manager, roomIds);
 
       await manager.delete(UserEntity, { id });
     });
