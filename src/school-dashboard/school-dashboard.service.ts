@@ -1,6 +1,11 @@
-import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { FindOptionsWhere, IsNull, Not, Repository } from 'typeorm';
+import { FindOptionsWhere, Repository } from 'typeorm';
 
 import { RoomEntity } from '../rooms/room.entity';
 import { UserEntity } from '../users/user.entity';
@@ -63,26 +68,38 @@ export class SchoolDashboardService {
 
   async listYears(schoolId: string) {
     const sid = this.ensureUuid(schoolId, 'schoolId');
+
     const years = await this.yearRepo.find({
       where: { schoolId: sid },
-      order: { createdAt: 'DESC' as any },
+      // ✅ cast do objeto inteiro (evita TS2353 caso o tipo do order esteja “chato”)
+      order: ({ createdAt: 'DESC' } as any),
     });
+
     return { ok: true, years };
   }
 
-  async updateYear(schoolId: string, yearId: string, name?: string, isActive?: boolean) {
+  async updateYear(
+    schoolId: string,
+    yearId: string,
+    name?: string,
+    isActive?: boolean,
+  ) {
     const sid = this.ensureUuid(schoolId, 'schoolId');
     const yid = this.ensureUuid(yearId, 'id');
 
-    const year = await this.yearRepo.findOne({ where: { id: yid, schoolId: sid } });
+    const year = await this.yearRepo.findOne({
+      where: { id: yid, schoolId: sid },
+    });
     if (!year) throw new NotFoundException('Ano letivo não encontrado.');
 
     const patch: Partial<SchoolYearEntity> = {};
+
     if (name != null) {
       const n = this.norm(name);
       if (!n) throw new BadRequestException('name inválido.');
       patch.name = n;
     }
+
     if (isActive != null) patch.isActive = !!isActive;
 
     if (!Object.keys(patch).length) return { ok: true, year };
@@ -101,11 +118,16 @@ export class SchoolDashboardService {
     const sid = this.ensureUuid(schoolId, 'schoolId');
     const yid = this.ensureUuid(yearId, 'id');
 
-    const year = await this.yearRepo.findOne({ where: { id: yid, schoolId: sid } });
+    const year = await this.yearRepo.findOne({
+      where: { id: yid, schoolId: sid },
+    });
     if (!year) throw new NotFoundException('Ano letivo não encontrado.');
 
     // “desvincula” salas desse ano (não apaga salas)
-    await this.roomRepo.update({ schoolId: sid, schoolYearId: yid }, { schoolYearId: null });
+    await this.roomRepo.update(
+      { schoolId: sid, schoolYearId: yid } as any,
+      { schoolYearId: null } as any,
+    );
 
     await this.yearRepo.delete({ id: yid });
     return { ok: true };
@@ -114,13 +136,20 @@ export class SchoolDashboardService {
   // ------------------------
   // Salas (painel escolar)
   // ------------------------
-  async createRoomForTeacherEmail(schoolId: string, roomName: string, teacherEmail: string, yearId?: string | null) {
+  async createRoomForTeacherEmail(
+    schoolId: string,
+    roomName: string,
+    teacherEmail: string,
+    yearId?: string | null,
+  ) {
     const sid = this.ensureUuid(schoolId, 'schoolId');
     const name = this.norm(roomName);
     const email = this.norm(teacherEmail).toLowerCase();
 
     if (!name) throw new BadRequestException('name é obrigatório.');
-    if (!email || !email.includes('@')) throw new BadRequestException('teacherEmail inválido.');
+    if (!email || !email.includes('@')) {
+      throw new BadRequestException('teacherEmail inválido.');
+    }
 
     // ✅ limite 10 salas por escola (ownerType=SCHOOL)
     const schoolRoomsCount = await this.roomRepo.count({
@@ -143,16 +172,17 @@ export class SchoolDashboardService {
       throw new ForbiddenException('Este professor não pertence a esta escola.');
     }
 
-    // ano letivo (opcional) mas se vier, valida que é da escola
+    // ano letivo (opcional)
     let schoolYearId: string | null = null;
     if (yearId != null && String(yearId).trim()) {
       const yid = String(yearId).trim();
-      const year = await this.yearRepo.findOne({ where: { id: yid, schoolId: sid } });
+      const year = await this.yearRepo.findOne({
+        where: { id: yid, schoolId: sid },
+      });
       if (!year) throw new BadRequestException('Ano letivo inválido para esta escola.');
       schoolYearId = yid;
     }
 
-    // criar sala
     const room = this.roomRepo.create({
       name,
       professorId: teacher.id, // compat com sistema
@@ -177,7 +207,7 @@ export class SchoolDashboardService {
             teacherId: saved.teacherId,
             teacherNameSnapshot: saved.teacherNameSnapshot,
             schoolYearId: saved.schoolYearId,
-            createdAt: saved.createdAt,
+            createdAt: (saved as any).createdAt ?? null,
           },
         };
       } catch {
@@ -185,7 +215,9 @@ export class SchoolDashboardService {
       }
     }
 
-    throw new BadRequestException('Não foi possível gerar um código de sala. Tente novamente.');
+    throw new BadRequestException(
+      'Não foi possível gerar um código de sala. Tente novamente.',
+    );
   }
 
   async listRooms(schoolId: string, yearId?: string | null) {
@@ -197,11 +229,12 @@ export class SchoolDashboardService {
       schoolId: sid,
     } as any;
 
-    if (y) where.schoolYearId = y;
+    if (y) where.schoolYearId = y as any;
 
     const rooms = await this.roomRepo.find({
       where,
-      order: { createdAt: 'DESC' as any },
+      // ✅ cast do objeto inteiro (evita TS2353)
+      order: ({ createdAt: 'DESC' } as any),
     });
 
     return {
@@ -213,7 +246,7 @@ export class SchoolDashboardService {
         teacherId: r.teacherId,
         teacherNameSnapshot: r.teacherNameSnapshot,
         schoolYearId: r.schoolYearId,
-        createdAt: r.createdAt,
+        createdAt: (r as any).createdAt ?? null,
       })),
     };
   }
@@ -226,7 +259,9 @@ export class SchoolDashboardService {
     const sid = this.ensureUuid(schoolId, 'schoolId');
     const rid = this.ensureUuid(roomId, 'id');
 
-    const room = await this.roomRepo.findOne({ where: { id: rid, ownerType: 'SCHOOL', schoolId: sid } as any });
+    const room = await this.roomRepo.findOne({
+      where: { id: rid, ownerType: 'SCHOOL', schoolId: sid } as any,
+    });
     if (!room) throw new NotFoundException('Sala não encontrada.');
 
     const upd: Partial<RoomEntity> = {};
@@ -262,7 +297,9 @@ export class SchoolDashboardService {
       if (!y) {
         upd.schoolYearId = null;
       } else {
-        const year = await this.yearRepo.findOne({ where: { id: y, schoolId: sid } });
+        const year = await this.yearRepo.findOne({
+          where: { id: y, schoolId: sid },
+        });
         if (!year) throw new BadRequestException('Ano letivo inválido para esta escola.');
         upd.schoolYearId = y;
       }
@@ -270,7 +307,7 @@ export class SchoolDashboardService {
 
     if (!Object.keys(upd).length) return { ok: true, room };
 
-    await this.roomRepo.update({ id: rid }, upd);
+    await this.roomRepo.update({ id: rid } as any, upd as any);
 
     const updated = await this.roomRepo.findOne({ where: { id: rid } });
     return {
@@ -282,7 +319,7 @@ export class SchoolDashboardService {
         teacherId: updated!.teacherId,
         teacherNameSnapshot: updated!.teacherNameSnapshot,
         schoolYearId: updated!.schoolYearId,
-        createdAt: updated!.createdAt,
+        createdAt: (updated as any)?.createdAt ?? null,
       },
     };
   }
@@ -291,26 +328,27 @@ export class SchoolDashboardService {
     const sid = this.ensureUuid(schoolId, 'schoolId');
     const rid = this.ensureUuid(roomId, 'id');
 
-    const room = await this.roomRepo.findOne({ where: { id: rid, ownerType: 'SCHOOL', schoolId: sid } as any });
+    const room = await this.roomRepo.findOne({
+      where: { id: rid, ownerType: 'SCHOOL', schoolId: sid } as any,
+    });
     if (!room) throw new NotFoundException('Sala não encontrada.');
 
-    // ⚠️ Aqui você pode decidir o que acontece com tasks/enrollments/essays:
-    // - manter (histórico) ou deletar cascata.
-    // Por enquanto: deleta só a sala (se tiver FK sem cascade, vai falhar).
+    // ⚠️ Se houver FK sem cascade, pode falhar. Depois ajustamos a estratégia (cascade/soft delete).
     await this.roomRepo.delete({ id: rid });
     return { ok: true };
   }
 
   /**
    * ✅ "Visualizar" -> Overview com média geral
-   * Vou reaproveitar RoomsService.overview(roomId),
-   * que você já tem no painel do professor.
+   * Reaproveita RoomsService.overview(roomId).
    */
   async roomOverview(schoolId: string, roomId: string) {
     const sid = this.ensureUuid(schoolId, 'schoolId');
     const rid = this.ensureUuid(roomId, 'id');
 
-    const room = await this.roomRepo.findOne({ where: { id: rid, ownerType: 'SCHOOL', schoolId: sid } as any });
+    const room = await this.roomRepo.findOne({
+      where: { id: rid, ownerType: 'SCHOOL', schoolId: sid } as any,
+    });
     if (!room) throw new NotFoundException('Sala não encontrada.');
 
     const overview = await this.roomsService.overview(rid);
@@ -324,7 +362,7 @@ export class SchoolDashboardService {
         teacherNameSnapshot: room.teacherNameSnapshot,
         teacherId: room.teacherId,
         schoolYearId: room.schoolYearId,
-        createdAt: room.createdAt,
+        createdAt: (room as any).createdAt ?? null,
       },
       overview,
     };
