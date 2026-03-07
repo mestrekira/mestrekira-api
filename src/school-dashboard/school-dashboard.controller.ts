@@ -76,28 +76,24 @@ export class SchoolDashboardController {
   // Salas (painel escolar)
   // ------------------------
   @Post('rooms')
-  createRoom(@Req() req: Request, @Body() body: any) {
-    const schoolId = this.ensureSchool(req);
+createRoom(@Req() req: Request, @Body() body: any) {
+  const schoolId = this.ensureSchool(req);
 
-    const name = String(body?.name || '').trim();
-    const teacherEmail = String(body?.teacherEmail || '')
-      .trim()
-      .toLowerCase();
-    const yearId = String(body?.yearId || '').trim();
+  const name = String(body?.name || '').trim();
+  const teacherEmail = String(body?.teacherEmail || '').trim().toLowerCase();
+  const yearId = String(body?.yearId || '').trim();
 
-    if (!name || !teacherEmail || !yearId) {
-      throw new BadRequestException(
-        'name, teacherEmail e yearId são obrigatórios.',
-      );
-    }
-
-    return this.schoolDash.createRoomForTeacherEmail(
-      schoolId,
-      name,
-      teacherEmail,
-      yearId,
-    );
+  if (!name || !teacherEmail || !yearId) {
+    throw new BadRequestException('name, teacherEmail e yearId são obrigatórios.');
   }
+
+  return this.schoolDash.createRoomForTeacherEmail(
+    schoolId,
+    name,
+    teacherEmail,
+    yearId,
+  );
+}
 
   @Get('rooms')
   listRooms(@Req() req: Request, @Query('yearId') yearId?: string) {
@@ -148,3 +144,4 @@ export class SchoolDashboardController {
     return this.schoolDash.roomOverview(schoolId, roomId);
   }
 }
+
