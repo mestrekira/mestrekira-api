@@ -28,8 +28,15 @@ export class SchoolDashboardController {
     if (role !== 'school') {
       throw new ForbiddenException('Apenas escolas podem acessar este recurso.');
     }
-    const id = String((req as any)?.user?.id || (req as any)?.user?.sub || '').trim();
-    if (!id) throw new ForbiddenException('Token inválido.');
+
+    const id = String(
+      (req as any)?.user?.id || (req as any)?.user?.sub || '',
+    ).trim();
+
+    if (!id) {
+      throw new ForbiddenException('Token inválido.');
+    }
+
     return id;
   }
 
@@ -52,7 +59,7 @@ export class SchoolDashboardController {
   renameYear(
     @Req() req: Request,
     @Param('id') id: string,
-    @Body('name') name: string,
+    @Body('name') name?: string,
     @Body('isActive') isActive?: boolean,
   ) {
     const schoolId = this.ensureSchool(req);
@@ -69,28 +76,31 @@ export class SchoolDashboardController {
   // Salas (painel escolar)
   // ------------------------
   @Post('rooms')
-  createRoom(
-    @Req() req: Request,
-    @Body() body: any,
-  ) {
+  createRoom(@Req() req: Request, @Body() body: any) {
     const schoolId = this.ensureSchool(req);
 
     const name = String(body?.name || '').trim();
-    const teacherEmail = String(body?.teacherEmail || '').trim().toLowerCase();
-    const yearId = body?.yearId ? String(body.yearId).trim() : null;
+    const teacherEmail = String(body?.teacherEmail || '')
+      .trim()
+      .toLowerCase();
+    const yearId = String(body?.yearId || '').trim();
 
-    if (!name || !teacherEmail) {
-      throw new BadRequestException('name e teacherEmail são obrigatórios.');
+    if (!name || !teacherEmail || !yearId) {
+      throw new BadRequestException(
+        'name, teacherEmail e yearId são obrigatórios.',
+      );
     }
 
-    return this.schoolDash.createRoomForTeacherEmail(schoolId, name, teacherEmail, yearId);
+    return this.schoolDash.createRoomForTeacherEmail(
+      schoolId,
+      name,
+      teacherEmail,
+      yearId,
+    );
   }
 
   @Get('rooms')
-  listRooms(
-    @Req() req: Request,
-    @Query('yearId') yearId?: string,
-  ) {
+  listRooms(@Req() req: Request, @Query('yearId') yearId?: string) {
     const schoolId = this.ensureSchool(req);
     const y = yearId ? String(yearId).trim() : '';
     return this.schoolDash.listRooms(schoolId, y || null);
@@ -100,21 +110,30 @@ export class SchoolDashboardController {
   renameRoom(
     @Req() req: Request,
     @Param('id') roomId: string,
-    @Body('name') name: string,
+    @Body('name') name?: string,
     @Body('teacherEmail') teacherEmail?: string,
     @Body('yearId') yearId?: string | null,
   ) {
     const schoolId = this.ensureSchool(req);
 
-    const n = String(name || '').trim();
-    const t = teacherEmail != null ? String(teacherEmail).trim().toLowerCase() : undefined;
+    const n = name != null ? String(name).trim() : undefined;
+    const t =
+      teacherEmail != null
+        ? String(teacherEmail).trim().toLowerCase()
+        : undefined;
     const y = yearId != null ? String(yearId).trim() : undefined;
 
     if (!n && t == null && y == null) {
-      throw new BadRequestException('Informe ao menos um campo para atualizar.');
+      throw new BadRequestException(
+        'Informe ao menos um campo para atualizar.',
+      );
     }
 
-    return this.schoolDash.updateRoom(schoolId, roomId, { name: n || undefined, teacherEmail: t, yearId: y });
+    return this.schoolDash.updateRoom(schoolId, roomId, {
+      name: n || undefined,
+      teacherEmail: t,
+      yearId: y,
+    });
   }
 
   @Delete('rooms/:id')
@@ -123,7 +142,6 @@ export class SchoolDashboardController {
     return this.schoolDash.deleteRoom(schoolId, roomId);
   }
 
- 
   @Get('rooms/:id/overview')
   overview(@Req() req: Request, @Param('id') roomId: string) {
     const schoolId = this.ensureSchool(req);
