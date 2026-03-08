@@ -21,9 +21,7 @@ import { MustChangePasswordGuard } from '../auth/guards/must-change-password.gua
 @Controller('school-dashboard')
 @UseGuards(AuthGuard('jwt'), MustChangePasswordGuard)
 export class SchoolDashboardController {
-    constructor(private readonly schoolDash: SchoolDashboardService) {
-    this.logger.log('SchoolDashboardController carregado');
-  }
+  constructor(private readonly schoolDash: SchoolDashboardService) {}
 
   private ensureSchool(req: Request) {
     const role = String((req as any)?.user?.role || '').toLowerCase();
@@ -147,10 +145,12 @@ createRoom(@Req() req: Request, @Body() body: any) {
   }
 
   @Get('debug')
-debug() {
-  return { ok: true, route: 'school-dashboard-debug' };
+debug(@Req() req: Request) {
+  const schoolId = this.ensureSchool(req);
+  return {
+    ok: true,
+    schoolId,
+    source: 'school-dashboard-controller',
+  };
 }
 }
-
-
-
