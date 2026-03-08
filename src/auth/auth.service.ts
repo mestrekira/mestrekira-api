@@ -140,6 +140,10 @@ export class AuthService {
       mustChangePassword: !!(user as any).mustChangePassword,
     });
 
+    this.logger.log(
+  `[LOGIN] user=${user.email} role=${role} sub=${user.id} token_generated=yes`,
+);
+    
     return {
       ok: true,
       message: 'Login realizado.',
