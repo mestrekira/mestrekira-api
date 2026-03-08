@@ -19,7 +19,7 @@ import { SchoolDashboardService } from './school-dashboard.service';
 import { MustChangePasswordGuard } from '../auth/guards/must-change-password.guard';
 
 @Controller('school-dashboard')
-@UseGuards(AuthGuard('jwt'), MustChangePasswordGuard)
+@UseGuards(AuthGuard('jwt'))
 export class SchoolDashboardController {
   constructor(private readonly schoolDash: SchoolDashboardService) {}
 
@@ -162,4 +162,5 @@ whoami(@Req() req: Request) {
   };
 }
 }
+
 
