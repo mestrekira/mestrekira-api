@@ -11,21 +11,52 @@ import {
   BadRequestException,
   UseGuards,
 } from '@nestjs/common';
-import { AuthService } from './auth.service';
 import { AuthGuard } from '@nestjs/passport';
+import { JwtService } from '@nestjs/jwt';
 import type { Request, Response } from 'express';
+
+import { AuthService } from './auth.service';
 
 @Controller('auth')
 export class AuthController {
-  constructor(private readonly auth: AuthService) {}
+  constructor(
+    private readonly auth: AuthService,
+    private readonly jwtService: JwtService,
+  ) {}
 
   /**
    * ✅ Login (serve para student/professor/school):
    * POST /auth/login
    */
   @Post('login')
-  async login(@Body('email') email: string, @Body('password') password: string) {
+  async login(
+    @Body('email') email: string,
+    @Body('password') password: string,
+  ) {
     return this.auth.login(email, password);
+  }
+
+  /**
+   * ✅ Debug temporário para validar token JWT manualmente
+   * POST /auth/debug-token
+   * body: { token }
+   */
+  @Post('debug-token')
+  async debugToken(@Body('token') token: string) {
+    const raw = String(token || '').trim();
+    if (!raw) {
+      throw new BadRequestException('Token ausente.');
+    }
+
+    try {
+      const decoded = await this.jwtService.verifyAsync(raw);
+      return { ok: true, decoded };
+    } catch (e: any) {
+      return {
+        ok: false,
+        error: String(e?.message || 'Falha ao verificar token.'),
+      };
+    }
   }
 
   /**
@@ -79,12 +110,10 @@ export class AuthController {
     const accept = String(req.headers['accept'] || '');
     const wantsHtml = accept.includes('text/html');
 
-    // 👉 API/Postman
     if (!wantsHtml) {
       return this.auth.verifyEmail(token);
     }
 
-    // 👉 Navegador
     try {
       await this.auth.verifyEmail(token);
 
@@ -92,10 +121,11 @@ export class AuthController {
       res.redirect(302, redirectUrl);
       return;
     } catch (err: any) {
-      const msg =
-        String(err?.response?.message || err?.message || 'Erro ao verificar.')
-          .slice(0, 200)
-          .trim();
+      const msg = String(
+        err?.response?.message || err?.message || 'Erro ao verificar.',
+      )
+        .slice(0, 200)
+        .trim();
 
       const redirectUrl = `${web}/verificar-email.html?ok=0&msg=${encodeURIComponent(
         msg,
@@ -105,13 +135,18 @@ export class AuthController {
       return;
     }
   }
-  
-@Post('first-password')
-@UseGuards(AuthGuard('jwt'))
-firstPassword(@Req() req: any, @Body('password') password: string) {
-  const userId = String(req?.user?.id || '').trim();
-  return this.auth.firstPassword(userId, password);
-}
+
+  /**
+   * ✅ Primeiro acesso
+   * POST /auth/first-password
+   */
+  @Post('first-password')
+  @UseGuards(AuthGuard('jwt'))
+  firstPassword(@Req() req: any, @Body('password') password: string) {
+    const userId = String(req?.user?.id || '').trim();
+    return this.auth.firstPassword(userId, password);
+  }
+
   /**
    * ✅ Reenviar verificação
    */
@@ -167,23 +202,20 @@ firstPassword(@Req() req: any, @Body('password') password: string) {
   }
 
   /**
- * ✅ Trocar senha no primeiro acesso (professor gerenciado)
- * POST /auth/change-password
- * Authorization: Bearer <token>
- * body: { currentPassword?, newPassword }
- *
- * - Para professor SCHOOL: currentPassword pode ser opcional (porque é senha temporária),
- *   mas é mais seguro exigir (recomendado). Vou exigir.
- */
-@UseGuards(AuthGuard('jwt'))
-@Post('change-password')
-async changePassword(
-  @Req() req: Request,
-  @Body('currentPassword') currentPassword: string,
-  @Body('newPassword') newPassword: string,
-) {
-  const uid = String((req as any)?.user?.id || '').trim();
-  if (!uid) throw new UnauthorizedException('Sessão inválida.');
-  return this.auth.changePassword(uid, currentPassword, newPassword);
-}
+   * ✅ Trocar senha
+   * POST /auth/change-password
+   * Authorization: Bearer <token>
+   * body: { currentPassword, newPassword }
+   */
+  @UseGuards(AuthGuard('jwt'))
+  @Post('change-password')
+  async changePassword(
+    @Req() req: Request,
+    @Body('currentPassword') currentPassword: string,
+    @Body('newPassword') newPassword: string,
+  ) {
+    const uid = String((req as any)?.user?.id || '').trim();
+    if (!uid) throw new UnauthorizedException('Sessão inválida.');
+    return this.auth.changePassword(uid, currentPassword, newPassword);
+  }
 }
