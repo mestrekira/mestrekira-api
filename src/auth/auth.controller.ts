@@ -24,10 +24,6 @@ export class AuthController {
     private readonly jwtService: JwtService,
   ) {}
 
-  /**
-   * ✅ Login (serve para student/professor/school):
-   * POST /auth/login
-   */
   @Post('login')
   async login(
     @Body('email') email: string,
@@ -36,11 +32,6 @@ export class AuthController {
     return this.auth.login(email, password);
   }
 
-  /**
-   * ✅ Debug temporário para validar token JWT manualmente
-   * POST /auth/debug-token
-   * body: { token }
-   */
   @Post('debug-token')
   async debugToken(@Body('token') token: string) {
     const raw = String(token || '').trim();
@@ -60,12 +51,34 @@ export class AuthController {
   }
 
   /**
-   * ✅ Registro de escola:
-   * POST /auth/register-school
-   * body: { name, email, password }
-   *
-   * (compat opcional) aceita também schoolName
+   * Diagnóstico 1:
+   * confirma se o header Authorization chegou ao backend
    */
+  @Post('debug-auth-header')
+  debugAuthHeader(@Headers('authorization') authorization?: string) {
+    const raw = String(authorization || '');
+    return {
+      ok: true,
+      hasAuthorizationHeader: !!raw,
+      startsWithBearer: raw.startsWith('Bearer '),
+      preview: raw ? `${raw.slice(0, 25)}...` : '',
+      length: raw.length,
+    };
+  }
+
+  /**
+   * Diagnóstico 2:
+   * passa exatamente pelo mesmo AuthGuard('jwt')
+   */
+  @UseGuards(AuthGuard('jwt'))
+  @Get('debug-protected')
+  debugProtected(@Req() req: Request) {
+    return {
+      ok: true,
+      user: (req as any)?.user || null,
+    };
+  }
+
   @Post('register-school')
   async registerSchool(
     @Body('name') name: string,
@@ -90,13 +103,6 @@ export class AuthController {
     return this.auth.registerSchool(n, e, p);
   }
 
-  /**
-   * ✅ Verificação de e-mail via link
-   * GET /auth/verify-email?token=...
-   *
-   * - Navegador → redireciona para o frontend
-   * - Postman/API → retorna JSON
-   */
   @Get('verify-email')
   async verifyEmail(
     @Query('token') token: string,
@@ -136,10 +142,6 @@ export class AuthController {
     }
   }
 
-  /**
-   * ✅ Primeiro acesso
-   * POST /auth/first-password
-   */
   @Post('first-password')
   @UseGuards(AuthGuard('jwt'))
   firstPassword(@Req() req: any, @Body('password') password: string) {
@@ -147,9 +149,6 @@ export class AuthController {
     return this.auth.firstPassword(userId, password);
   }
 
-  /**
-   * ✅ Reenviar verificação
-   */
   @Post('request-verify')
   async requestVerify(@Body('email') email: string) {
     const e = String(email || '').trim().toLowerCase();
@@ -159,9 +158,6 @@ export class AuthController {
     return this.auth.requestEmailVerification(e);
   }
 
-  /**
-   * ✅ Admin debug
-   */
   @Post('admin/send-verify')
   async adminSendVerify(
     @Headers('x-auth-secret') secret: string,
@@ -175,9 +171,6 @@ export class AuthController {
     return this.auth.adminSendVerifyByUserId(userId);
   }
 
-  /**
-   * ✅ Solicitar redefinição de senha
-   */
   @Post('request-password-reset')
   async requestPasswordReset(
     @Body('email') email: string,
@@ -190,9 +183,6 @@ export class AuthController {
     return this.auth.requestPasswordReset(e, role);
   }
 
-  /**
-   * ✅ Redefinir senha
-   */
   @Post('reset-password')
   async resetPassword(
     @Body('token') token: string,
@@ -201,12 +191,6 @@ export class AuthController {
     return this.auth.resetPassword(token, newPassword);
   }
 
-  /**
-   * ✅ Trocar senha
-   * POST /auth/change-password
-   * Authorization: Bearer <token>
-   * body: { currentPassword, newPassword }
-   */
   @UseGuards(AuthGuard('jwt'))
   @Post('change-password')
   async changePassword(
