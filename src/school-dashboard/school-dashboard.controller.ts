@@ -153,4 +153,13 @@ debug(@Req() req: Request) {
     source: 'school-dashboard-controller',
   };
 }
+
+  @Get('whoami')
+whoami(@Req() req: Request) {
+  return {
+    ok: true,
+    user: (req as any).user || null,
+  };
 }
+}
+
