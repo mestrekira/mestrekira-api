@@ -13,6 +13,7 @@ type JwtPayload = {
 
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
+ console.log('[JWT STRATEGY] secret loaded =', !!((process.env.JWT_SECRET || '').trim()));
   constructor(
     @InjectRepository(UserEntity)
     private readonly userRepo: Repository<UserEntity>,
@@ -26,13 +27,17 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
     });
   }
 
-  async validate(payload: JwtPayload) {
-    if (!payload?.sub) throw new UnauthorizedException('Token inválido.');
+ async validate(payload: JwtPayload) {
+  console.log('[JWT VALIDATE] payload =', payload);
 
-    return {
-      id: String(payload.sub),
-      role: String(payload.role || ''),
-      mustChangePassword: !!payload.mustChangePassword,
-    };
+  if (!payload?.sub) {
+    throw new UnauthorizedException('Token inválido.');
   }
+
+  return {
+    id: String(payload.sub),
+    role: String(payload.role || ''),
+    mustChangePassword: !!payload.mustChangePassword,
+  };
+}
 }
