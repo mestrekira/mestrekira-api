@@ -143,5 +143,11 @@ createRoom(@Req() req: Request, @Body() body: any) {
     const schoolId = this.ensureSchool(req);
     return this.schoolDash.roomOverview(schoolId, roomId);
   }
+
+  @Get('debug')
+debug() {
+  return { ok: true, route: 'school-dashboard-debug' };
 }
+}
+
 
