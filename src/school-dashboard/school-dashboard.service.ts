@@ -198,27 +198,28 @@ export class SchoolDashboardService {
     let generatedTempPassword: string | null = null;
     let teacherWasProvisioned = false;
 
-    if (!teacher) {
+       if (!teacher) {
       generatedTempPassword = this.newTempPassword();
       const passwordHash = await bcrypt.hash(generatedTempPassword, 10);
 
-      const createdTeacher = this.userRepo.create({
-        name: email.split('@')[0],
-        email,
-        password: passwordHash,
-        role: 'professor',
-        professorType: 'SCHOOL',
-        schoolId: sid,
-        mustChangePassword: true,
-        trialMode: false,
-        isActive: true,
-        emailVerified: true,
-        emailVerifiedAt: new Date(),
-        emailVerifyTokenHash: null,
-        emailVerifyTokenExpiresAt: null,
-      } as any);
+      const createdTeacher = new UserEntity();
+      createdTeacher.name = email.split('@')[0];
+      createdTeacher.email = email;
+      createdTeacher.password = passwordHash;
+      createdTeacher.role = 'professor';
 
-      const savedTeacher: UserEntity = await this.userRepo.save(createdTeacher);
+      (createdTeacher as any).professorType = 'SCHOOL';
+      (createdTeacher as any).schoolId = sid;
+      (createdTeacher as any).mustChangePassword = true;
+      (createdTeacher as any).trialMode = false;
+      (createdTeacher as any).isActive = true;
+
+      (createdTeacher as any).emailVerified = true;
+      (createdTeacher as any).emailVerifiedAt = new Date();
+      (createdTeacher as any).emailVerifyTokenHash = null;
+      (createdTeacher as any).emailVerifyTokenExpiresAt = null;
+
+      const savedTeacher = await this.userRepo.save(createdTeacher);
       teacher = savedTeacher;
       teacherWasProvisioned = true;
     } else {
@@ -478,3 +479,4 @@ export class SchoolDashboardService {
     };
   }
 }
+
