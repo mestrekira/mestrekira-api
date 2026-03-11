@@ -191,7 +191,9 @@ export class SchoolDashboardService {
       throw new BadRequestException('Esta escola já atingiu o limite de 10 salas.');
     }
 
-    let teacher = await this.userRepo.findOne({ where: { email } });
+    let teacher: UserEntity | null = await this.userRepo.findOne({
+      where: { email },
+    });
 
     let generatedTempPassword: string | null = null;
     let teacherWasProvisioned = false;
@@ -200,25 +202,24 @@ export class SchoolDashboardService {
       generatedTempPassword = this.newTempPassword();
       const passwordHash = await bcrypt.hash(generatedTempPassword, 10);
 
-      teacher = this.userRepo.create({
+      const createdTeacher = this.userRepo.create({
         name: email.split('@')[0],
         email,
         password: passwordHash,
         role: 'professor',
-
         professorType: 'SCHOOL',
         schoolId: sid,
         mustChangePassword: true,
         trialMode: false,
         isActive: true,
-
         emailVerified: true,
         emailVerifiedAt: new Date(),
         emailVerifyTokenHash: null,
         emailVerifyTokenExpiresAt: null,
       } as any);
 
-      teacher = await this.userRepo.save(teacher);
+      const savedTeacher: UserEntity = await this.userRepo.save(createdTeacher);
+      teacher = savedTeacher;
       teacherWasProvisioned = true;
     } else {
       if (this.roleOf(teacher) !== 'professor') {
@@ -235,7 +236,11 @@ export class SchoolDashboardService {
         );
       }
 
-      if (teacherSchoolId !== sid || String((teacher as any).professorType || '').toUpperCase() !== 'SCHOOL') {
+      const professorType = String(
+        (teacher as any).professorType || '',
+      ).toUpperCase();
+
+      if (teacherSchoolId !== sid || professorType !== 'SCHOOL') {
         generatedTempPassword = this.newTempPassword();
         const passwordHash = await bcrypt.hash(generatedTempPassword, 10);
 
@@ -251,9 +256,14 @@ export class SchoolDashboardService {
         (teacher as any).emailVerifyTokenHash = null;
         (teacher as any).emailVerifyTokenExpiresAt = null;
 
-        teacher = await this.userRepo.save(teacher);
+        const savedTeacher: UserEntity = await this.userRepo.save(teacher);
+        teacher = savedTeacher;
         teacherWasProvisioned = true;
       }
+    }
+
+    if (!teacher) {
+      throw new BadRequestException('Não foi possível preparar o professor.');
     }
 
     const room = this.roomRepo.create({
