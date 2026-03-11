@@ -25,7 +25,7 @@ export class MailService {
   }
 
   // -----------------------------
-  // 1) Inactivity (você já usa)
+  // 1) Inactivity
   // -----------------------------
   async sendInactivityWarning(params: {
     to: string;
@@ -47,7 +47,6 @@ export class MailService {
     }
 
     const subject = 'Sua conta está inativa — veja como evitar a remoção';
-
     const { html, text } = this.buildInactivityContent(params);
 
     const unsub = (params.unsubscribeUrl || '').trim();
@@ -172,7 +171,11 @@ Se você voltar a usar a plataforma, a remoção pode ser evitada automaticament
   // -----------------------------
   // 2) Email Verification
   // -----------------------------
-  async sendEmailVerification(params: { to: string; name: string; verifyUrl: string }) {
+  async sendEmailVerification(params: {
+    to: string;
+    name: string;
+    verifyUrl: string;
+  }) {
     const from = (process.env.MAIL_FROM || '').trim();
     const replyTo = (process.env.MAIL_REPLY_TO || '').trim();
 
@@ -213,7 +216,13 @@ Se você voltar a usar a plataforma, a remoção pode ser evitada automaticament
     }
   }
 
-  private buildVerifyEmailContent({ name, verifyUrl }: { name: string; verifyUrl: string }) {
+  private buildVerifyEmailContent({
+    name,
+    verifyUrl,
+  }: {
+    name: string;
+    verifyUrl: string;
+  }) {
     const safeName = escapeHtml((name || '').trim() || 'Olá');
     const safeUrl = escapeAttr(verifyUrl);
 
@@ -258,7 +267,11 @@ Se você não criou esta conta, ignore este e-mail.
   // -----------------------------
   // 3) Password Reset
   // -----------------------------
-  async sendPasswordReset(params: { to: string; name: string; resetUrl: string }) {
+  async sendPasswordReset(params: {
+    to: string;
+    name: string;
+    resetUrl: string;
+  }) {
     const from = (process.env.MAIL_FROM || '').trim();
     const replyTo = (process.env.MAIL_REPLY_TO || '').trim();
 
@@ -344,6 +357,148 @@ Se você não solicitou isso, ignore este e-mail.
 
   <p style="color:#666;font-size:12px;margin-top:18px;">
     Se você não solicitou isso, ignore este e-mail.
+  </p>
+</div>
+`;
+    return { html, text };
+  }
+
+  // -----------------------------
+  // 4) Professor criado/vinculado pela escola
+  // -----------------------------
+  async sendSchoolTeacherAccess(params: {
+    to: string;
+    teacherName: string;
+    schoolName: string;
+    temporaryPassword: string;
+    loginUrl: string;
+    roomName?: string;
+    yearName?: string;
+  }) {
+    const from = (process.env.MAIL_FROM || '').trim();
+    const replyTo = (process.env.MAIL_REPLY_TO || '').trim();
+
+    if (!from) {
+      this.logger.warn('MAIL_FROM não configurado. Pulando envio.');
+      return { ok: false, skipped: true, reason: 'MAIL_FROM missing' };
+    }
+    if (!this.resend) {
+      this.logger.warn('RESEND_API_KEY não configurado. Pulando envio.');
+      return { ok: false, skipped: true, reason: 'RESEND_API_KEY missing' };
+    }
+
+    const subject = 'Você foi vinculado(a) a uma escola no Mestre Kira';
+    const { html, text } = this.buildSchoolTeacherAccessContent(params);
+
+    try {
+      const payload: any = {
+        from,
+        to: params.to,
+        subject,
+        html,
+        text,
+        tags: [{ name: 'type', value: 'school-teacher-access' }],
+      };
+      if (replyTo) payload.reply_to = replyTo;
+
+      const result = await this.resend.emails.send(payload);
+      this.logger.log(
+        `SchoolTeacherAccess OK: to=${params.to} | result=${JSON.stringify(result)}`,
+      );
+      return { ok: true, result };
+    } catch (err: any) {
+      this.logger.error(
+        `SchoolTeacherAccess FAIL: ${params.to} | ${err?.message || err}`,
+        err?.stack,
+      );
+      throw err;
+    }
+  }
+
+  private buildSchoolTeacherAccessContent({
+    teacherName,
+    schoolName,
+    temporaryPassword,
+    loginUrl,
+    roomName,
+    yearName,
+  }: {
+    teacherName: string;
+    schoolName: string;
+    temporaryPassword: string;
+    loginUrl: string;
+    roomName?: string;
+    yearName?: string;
+  }) {
+    const safeTeacherName = escapeHtml((teacherName || '').trim() || 'Olá');
+    const safeSchoolName = escapeHtml((schoolName || '').trim() || 'sua escola');
+    const safePassword = escapeHtml(temporaryPassword);
+    const safeLoginUrl = escapeAttr(loginUrl);
+    const safeRoomName = escapeHtml((roomName || '').trim());
+    const safeYearName = escapeHtml((yearName || '').trim());
+
+    const preheader =
+      'Seu acesso de professor foi criado. Entre com a senha temporária e troque-a no primeiro acesso.';
+
+    const roomBlockText = roomName
+      ? `\nSala vinculada: ${roomName}${yearName ? ` (${yearName})` : ''}`
+      : '';
+
+    const text = `Olá, ${teacherName || 'tudo bem?'}
+
+Seu acesso como professor(a) foi criado/vinculado pela escola ${schoolName} no Mestre Kira.${roomBlockText}
+
+Dados de acesso:
+E-mail: será este mesmo endereço que recebeu a mensagem
+Senha temporária: ${temporaryPassword}
+
+Acesse:
+${loginUrl}
+
+No primeiro acesso, você deverá trocar sua senha.
+
+— Mestre Kira
+`;
+
+    const roomBlockHtml = safeRoomName
+      ? `
+  <p style="margin:0 0 12px;">
+    <b>Sala vinculada:</b> ${safeRoomName}${safeYearName ? ` (${safeYearName})` : ''}
+  </p>
+  `
+      : '';
+
+    const html = `
+<div style="display:none;max-height:0;overflow:hidden;opacity:0;color:transparent;">
+  ${escapeHtml(preheader)}
+</div>
+
+<div style="font-family: Arial, sans-serif; line-height: 1.5;">
+  <h2 style="margin: 0 0 12px;">${safeTeacherName}, seu acesso foi criado</h2>
+
+  <p style="margin:0 0 12px;">
+    Seu acesso como <b>professor(a)</b> foi criado/vinculado pela escola
+    <b>${safeSchoolName}</b> no Mestre Kira.
+  </p>
+
+  ${roomBlockHtml}
+
+  <p style="margin:0 0 12px;">
+    <b>Senha temporária:</b> <code>${safePassword}</code>
+  </p>
+
+  <p style="margin:0 0 16px;">
+    <a href="${safeLoginUrl}" style="display:inline-block;padding:10px 14px;border-radius:8px;background:#111;color:#fff;text-decoration:none;">
+      Acessar como professor
+    </a>
+  </p>
+
+  <p style="margin:0 0 12px;">
+    No primeiro acesso, você deverá trocar sua senha.
+  </p>
+
+  <p style="color:#666;font-size:12px;margin-top:18px;">
+    Se você não esperava esta mensagem, entre em contato com a escola.
   </p>
 </div>
 `;
