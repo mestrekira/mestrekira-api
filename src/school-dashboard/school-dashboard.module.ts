@@ -10,15 +10,18 @@ import { SchoolYearEntity } from './school-year.entity';
 
 import { RoomsModule } from '../rooms/rooms.module';
 import { EssaysModule } from '../essays/essays.module';
+import { MailModule } from '../mail/mail.module';
 
 @Module({
   imports: [
     TypeOrmModule.forFeature([RoomEntity, UserEntity, SchoolYearEntity]),
     RoomsModule,  // para usar RoomsService.overview
     EssaysModule, // se você quiser usar EssaysService direto depois
+    MailModule,
   ],
   controllers: [SchoolDashboardController],
   providers: [SchoolDashboardService],
   exports: [SchoolDashboardService],
 })
 export class SchoolDashboardModule {}
+
