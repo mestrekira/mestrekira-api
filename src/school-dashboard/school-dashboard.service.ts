@@ -6,14 +6,16 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { FindOptionsWhere, Repository } from 'typeorm';
+import * as crypto from 'crypto';
+import * as bcrypt from 'bcrypt';
 
 import { RoomEntity } from '../rooms/room.entity';
 import { UserEntity } from '../users/user.entity';
 import { SchoolYearEntity } from './school-year.entity';
 import { RoomsService } from '../rooms/rooms.service';
+import { MailService } from '../mail/mail.service';
 
 function generateRoomCode() {
-  // 6 chars, bem “humano”
   return Math.random().toString(36).slice(2, 8).toUpperCase();
 }
 
@@ -30,6 +32,7 @@ export class SchoolDashboardService {
     private readonly yearRepo: Repository<SchoolYearEntity>,
 
     private readonly roomsService: RoomsService,
+    private readonly mailService: MailService,
   ) {}
 
   private norm(v: any) {
@@ -41,6 +44,21 @@ export class SchoolDashboardService {
     const s = this.norm(v);
     if (!s) throw new BadRequestException(`${field} é obrigatório.`);
     return s;
+  }
+
+  private roleOf(user: any) {
+    return String(user?.role || '').trim().toLowerCase();
+  }
+
+  private newTempPassword() {
+    return crypto.randomBytes(6).toString('base64url');
+  }
+
+  private getWebUrl() {
+    return (
+      (process.env.APP_WEB_URL || '').trim() ||
+      'https://www.mestrekira.com.br/app/frontend'
+    );
   }
 
   // ------------------------
@@ -60,8 +78,7 @@ export class SchoolDashboardService {
     try {
       const saved = await this.yearRepo.save(year);
       return { ok: true, year: saved };
-    } catch (e: any) {
-      // unique (schoolId+name)
+    } catch {
       throw new BadRequestException('Já existe um ano letivo com esse nome.');
     }
   }
@@ -71,7 +88,6 @@ export class SchoolDashboardService {
 
     const years = await this.yearRepo.find({
       where: { schoolId: sid },
-      // ✅ cast do objeto inteiro (evita TS2353 caso o tipo do order esteja “chato”)
       order: ({ createdAt: 'DESC' } as any),
     });
 
@@ -123,7 +139,6 @@ export class SchoolDashboardService {
     });
     if (!year) throw new NotFoundException('Ano letivo não encontrado.');
 
-    // “desvincula” salas desse ano (não apaga salas)
     await this.roomRepo.update(
       { schoolId: sid, schoolYearId: yid } as any,
       { schoolYearId: null } as any,
@@ -134,90 +149,177 @@ export class SchoolDashboardService {
   }
 
   // ------------------------
-  // Salas (painel escolar)
+  // Salas (painel escolar) — PLANO B
   // ------------------------
   async createRoomForTeacherEmail(
     schoolId: string,
     roomName: string,
     teacherEmail: string,
-    yearId?: string | null,
+    yearId: string,
   ) {
     const sid = this.ensureUuid(schoolId, 'schoolId');
     const name = this.norm(roomName);
     const email = this.norm(teacherEmail).toLowerCase();
+    const yid = this.ensureUuid(yearId, 'yearId');
 
     if (!name) throw new BadRequestException('name é obrigatório.');
     if (!email || !email.includes('@')) {
       throw new BadRequestException('teacherEmail inválido.');
     }
 
-    // ✅ limite 10 salas por escola (ownerType=SCHOOL)
+    const school = await this.userRepo.findOne({ where: { id: sid } });
+    if (!school) throw new NotFoundException('Escola não encontrada.');
+    if (this.roleOf(school) !== 'school') {
+      throw new ForbiddenException('Apenas escolas podem criar salas.');
+    }
+
+    const year = await this.yearRepo.findOne({
+      where: { id: yid, schoolId: sid },
+    });
+    if (!year) {
+      throw new BadRequestException('Ano letivo inválido para esta escola.');
+    }
+
     const schoolRoomsCount = await this.roomRepo.count({
-      where: { ownerType: 'SCHOOL', schoolId: sid } as FindOptionsWhere<RoomEntity>,
+      where: {
+        ownerType: 'SCHOOL',
+        schoolId: sid,
+      } as FindOptionsWhere<RoomEntity>,
     });
 
     if (schoolRoomsCount >= 10) {
       throw new BadRequestException('Esta escola já atingiu o limite de 10 salas.');
     }
 
-    // professor precisa existir e pertencer à escola
-    const teacher = await this.userRepo.findOne({ where: { email } });
-    if (!teacher) throw new NotFoundException('Professor não encontrado.');
+    let teacher = await this.userRepo.findOne({ where: { email } });
 
-    if (String(teacher.role || '').toLowerCase() !== 'professor') {
-      throw new BadRequestException('O e-mail informado não é de professor.');
-    }
+    let generatedTempPassword: string | null = null;
+    let teacherWasProvisioned = false;
 
-    if (String((teacher as any).schoolId || '').trim() !== sid) {
-      throw new ForbiddenException('Este professor não pertence a esta escola.');
-    }
+    if (!teacher) {
+      generatedTempPassword = this.newTempPassword();
+      const passwordHash = await bcrypt.hash(generatedTempPassword, 10);
 
-    // ano letivo (opcional)
-    let schoolYearId: string | null = null;
-    if (yearId != null && String(yearId).trim()) {
-      const yid = String(yearId).trim();
-      const year = await this.yearRepo.findOne({
-        where: { id: yid, schoolId: sid },
-      });
-      if (!year) throw new BadRequestException('Ano letivo inválido para esta escola.');
-      schoolYearId = yid;
+      teacher = this.userRepo.create({
+        name: email.split('@')[0],
+        email,
+        password: passwordHash,
+        role: 'professor',
+
+        professorType: 'SCHOOL',
+        schoolId: sid,
+        mustChangePassword: true,
+        trialMode: false,
+        isActive: true,
+
+        emailVerified: true,
+        emailVerifiedAt: new Date(),
+        emailVerifyTokenHash: null,
+        emailVerifyTokenExpiresAt: null,
+      } as any);
+
+      teacher = await this.userRepo.save(teacher);
+      teacherWasProvisioned = true;
+    } else {
+      if (this.roleOf(teacher) !== 'professor') {
+        throw new BadRequestException(
+          'Este e-mail já está cadastrado como outro tipo de usuário.',
+        );
+      }
+
+      const teacherSchoolId = String((teacher as any).schoolId || '').trim();
+
+      if (teacherSchoolId && teacherSchoolId !== sid) {
+        throw new ForbiddenException(
+          'Este professor já está vinculado a outra escola.',
+        );
+      }
+
+      if (teacherSchoolId !== sid || String((teacher as any).professorType || '').toUpperCase() !== 'SCHOOL') {
+        generatedTempPassword = this.newTempPassword();
+        const passwordHash = await bcrypt.hash(generatedTempPassword, 10);
+
+        teacher.name = teacher.name || email.split('@')[0];
+        (teacher as any).professorType = 'SCHOOL';
+        (teacher as any).schoolId = sid;
+        (teacher as any).mustChangePassword = true;
+        (teacher as any).isActive = true;
+        teacher.password = passwordHash;
+
+        (teacher as any).emailVerified = true;
+        (teacher as any).emailVerifiedAt = new Date();
+        (teacher as any).emailVerifyTokenHash = null;
+        (teacher as any).emailVerifyTokenExpiresAt = null;
+
+        teacher = await this.userRepo.save(teacher);
+        teacherWasProvisioned = true;
+      }
     }
 
     const room = this.roomRepo.create({
       name,
-      professorId: teacher.id, // compat com sistema
+      professorId: teacher.id,
       code: generateRoomCode(),
       ownerType: 'SCHOOL',
       schoolId: sid,
       teacherId: teacher.id,
       teacherNameSnapshot: teacher.name,
-      schoolYearId,
+      schoolYearId: yid,
     });
 
-    // garante code único (se bater, tenta de novo)
+    let savedRoom: RoomEntity | null = null;
+
     for (let i = 0; i < 5; i++) {
       try {
-        const saved = await this.roomRepo.save(room);
-        return {
-          ok: true,
-          room: {
-            id: saved.id,
-            name: saved.name,
-            code: saved.code,
-            teacherId: saved.teacherId,
-            teacherNameSnapshot: saved.teacherNameSnapshot,
-            schoolYearId: saved.schoolYearId,
-            createdAt: (saved as any).createdAt ?? null,
-          },
-        };
+        savedRoom = await this.roomRepo.save(room);
+        break;
       } catch {
         room.code = generateRoomCode();
       }
     }
 
-    throw new BadRequestException(
-      'Não foi possível gerar um código de sala. Tente novamente.',
-    );
+    if (!savedRoom) {
+      throw new BadRequestException(
+        'Não foi possível gerar um código de sala. Tente novamente.',
+      );
+    }
+
+    if (teacherWasProvisioned && generatedTempPassword) {
+      const loginUrl = `${this.getWebUrl()}/login-professor.html`;
+
+      await this.mailService.sendSchoolTeacherAccess({
+        to: teacher.email,
+        teacherName: teacher.name,
+        schoolName: school.name,
+        temporaryPassword: generatedTempPassword,
+        loginUrl,
+        roomName: name,
+        yearName: year.name,
+      });
+    }
+
+    return {
+      ok: true,
+      room: {
+        id: savedRoom.id,
+        name: savedRoom.name,
+        code: savedRoom.code,
+        teacherId: savedRoom.teacherId,
+        teacherNameSnapshot: savedRoom.teacherNameSnapshot,
+        schoolYearId: savedRoom.schoolYearId,
+        createdAt: (savedRoom as any).createdAt ?? null,
+      },
+      teacher: {
+        id: teacher.id,
+        email: teacher.email,
+        name: teacher.name,
+        professorType: (teacher as any).professorType ?? null,
+        schoolId: (teacher as any).schoolId ?? null,
+        mustChangePassword: !!(teacher as any).mustChangePassword,
+        createdOrUpdated: teacherWasProvisioned,
+        emailSent: !!(teacherWasProvisioned && generatedTempPassword),
+      },
+    };
   }
 
   async listRooms(schoolId: string, yearId?: string | null) {
@@ -233,7 +335,6 @@ export class SchoolDashboardService {
 
     const rooms = await this.roomRepo.find({
       where,
-      // ✅ cast do objeto inteiro (evita TS2353)
       order: ({ createdAt: 'DESC' } as any),
     });
 
@@ -274,12 +375,14 @@ export class SchoolDashboardService {
 
     if (patch.teacherEmail != null) {
       const email = this.norm(patch.teacherEmail).toLowerCase();
-      if (!email.includes('@')) throw new BadRequestException('teacherEmail inválido.');
+      if (!email.includes('@')) {
+        throw new BadRequestException('teacherEmail inválido.');
+      }
 
       const teacher = await this.userRepo.findOne({ where: { email } });
       if (!teacher) throw new NotFoundException('Professor não encontrado.');
 
-      if (String(teacher.role || '').toLowerCase() !== 'professor') {
+      if (this.roleOf(teacher) !== 'professor') {
         throw new BadRequestException('O e-mail informado não é de professor.');
       }
 
@@ -289,7 +392,7 @@ export class SchoolDashboardService {
 
       upd.teacherId = teacher.id;
       upd.teacherNameSnapshot = teacher.name;
-      upd.professorId = teacher.id; // compat
+      upd.professorId = teacher.id;
     }
 
     if (patch.yearId !== undefined) {
@@ -300,7 +403,9 @@ export class SchoolDashboardService {
         const year = await this.yearRepo.findOne({
           where: { id: y, schoolId: sid },
         });
-        if (!year) throw new BadRequestException('Ano letivo inválido para esta escola.');
+        if (!year) {
+          throw new BadRequestException('Ano letivo inválido para esta escola.');
+        }
         upd.schoolYearId = y;
       }
     }
@@ -333,15 +438,10 @@ export class SchoolDashboardService {
     });
     if (!room) throw new NotFoundException('Sala não encontrada.');
 
-    // ⚠️ Se houver FK sem cascade, pode falhar. Depois ajustamos a estratégia (cascade/soft delete).
     await this.roomRepo.delete({ id: rid });
     return { ok: true };
   }
 
-  /**
-   * ✅ "Visualizar" -> Overview com média geral
-   * Reaproveita RoomsService.overview(roomId).
-   */
   async roomOverview(schoolId: string, roomId: string) {
     const sid = this.ensureUuid(schoolId, 'schoolId');
     const rid = this.ensureUuid(roomId, 'id');
