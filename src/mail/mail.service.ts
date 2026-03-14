@@ -373,6 +373,7 @@ Se você não solicitou isso, ignore este e-mail.
     temporaryPassword: string;
     loginUrl: string;
     roomName?: string;
+    roomCode?: string;
     yearName?: string;
   }) {
     const from = (process.env.MAIL_FROM || '').trim();
@@ -387,7 +388,7 @@ Se você não solicitou isso, ignore este e-mail.
       return { ok: false, skipped: true, reason: 'RESEND_API_KEY missing' };
     }
 
-    const subject = 'Você foi vinculado(a) a uma escola no Mestre Kira';
+    const subject = 'Seu acesso de professor foi criado no Mestre Kira';
     const { html, text } = this.buildSchoolTeacherAccessContent(params);
 
     try {
@@ -421,6 +422,7 @@ Se você não solicitou isso, ignore este e-mail.
     temporaryPassword,
     loginUrl,
     roomName,
+    roomCode,
     yearName,
   }: {
     teacherName: string;
@@ -428,6 +430,7 @@ Se você não solicitou isso, ignore este e-mail.
     temporaryPassword: string;
     loginUrl: string;
     roomName?: string;
+    roomCode?: string;
     yearName?: string;
   }) {
     const safeTeacherName = escapeHtml((teacherName || '').trim() || 'Olá');
@@ -435,21 +438,24 @@ Se você não solicitou isso, ignore este e-mail.
     const safePassword = escapeHtml(temporaryPassword);
     const safeLoginUrl = escapeAttr(loginUrl);
     const safeRoomName = escapeHtml((roomName || '').trim());
+    const safeRoomCode = escapeHtml((roomCode || '').trim());
     const safeYearName = escapeHtml((yearName || '').trim());
 
     const preheader =
       'Seu acesso de professor foi criado. Entre com a senha temporária e troque-a no primeiro acesso.';
 
-    const roomBlockText = roomName
-      ? `\nSala vinculada: ${roomName}${yearName ? ` (${yearName})` : ''}`
+    const roomInfoText = roomName
+      ? `\nSala vinculada: ${roomName}${yearName ? ` (${yearName})` : ''}${
+          roomCode ? `\nCódigo da sala: ${roomCode}` : ''
+        }`
       : '';
 
     const text = `Olá, ${teacherName || 'tudo bem?'}
 
-Seu acesso como professor(a) foi criado/vinculado pela escola ${schoolName} no Mestre Kira.${roomBlockText}
+Seu acesso como professor(a) foi criado/vinculado pela escola ${schoolName} no Mestre Kira.${roomInfoText}
 
 Dados de acesso:
-E-mail: será este mesmo endereço que recebeu a mensagem
+E-mail: este mesmo endereço
 Senha temporária: ${temporaryPassword}
 
 Acesse:
@@ -464,6 +470,7 @@ No primeiro acesso, você deverá trocar sua senha.
       ? `
   <p style="margin:0 0 12px;">
     <b>Sala vinculada:</b> ${safeRoomName}${safeYearName ? ` (${safeYearName})` : ''}
+    ${safeRoomCode ? `<br><b>Código da sala:</b> <code>${safeRoomCode}</code>` : ''}
   </p>
   `
       : '';
