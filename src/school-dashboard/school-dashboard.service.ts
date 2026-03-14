@@ -199,30 +199,30 @@ export class SchoolDashboardService {
     let teacherWasProvisioned = false;
 
        if (!teacher) {
-      generatedTempPassword = this.newTempPassword();
-      const passwordHash = await bcrypt.hash(generatedTempPassword, 10);
+  generatedTempPassword = this.newTempPassword();
+  const passwordHash = await bcrypt.hash(generatedTempPassword, 10);
 
-      const createdTeacher = new UserEntity();
-      createdTeacher.name = email.split('@')[0];
-      createdTeacher.email = email;
-      createdTeacher.password = passwordHash;
-      createdTeacher.role = 'professor';
+  const createdTeacher = new UserEntity();
+  createdTeacher.name = email.split('@')[0];
+  createdTeacher.email = email;
+  createdTeacher.password = passwordHash;
+  createdTeacher.role = 'professor';
 
-      (createdTeacher as any).professorType = 'SCHOOL';
-      (createdTeacher as any).schoolId = sid;
-      (createdTeacher as any).mustChangePassword = true;
-      (createdTeacher as any).trialMode = false;
-      (createdTeacher as any).isActive = true;
+  (createdTeacher as any).professorType = 'SCHOOL';
+  (createdTeacher as any).schoolId = sid;
+  (createdTeacher as any).mustChangePassword = true;
+  (createdTeacher as any).trialMode = false;
+  (createdTeacher as any).isActive = true;
 
-      (createdTeacher as any).emailVerified = true;
-      (createdTeacher as any).emailVerifiedAt = new Date();
-      (createdTeacher as any).emailVerifyTokenHash = null;
-      (createdTeacher as any).emailVerifyTokenExpiresAt = null;
+  (createdTeacher as any).emailVerified = true;
+  (createdTeacher as any).emailVerifiedAt = new Date();
+  (createdTeacher as any).emailVerifyTokenHash = null;
+  (createdTeacher as any).emailVerifyTokenExpiresAt = null;
 
-      const savedTeacher = await this.userRepo.save(createdTeacher);
-      teacher = savedTeacher;
-      teacherWasProvisioned = true;
-    } else {
+  const savedTeacher = await this.userRepo.save(createdTeacher);
+  teacher = savedTeacher;
+  teacherWasProvisioned = true;
+} else {
       if (this.roleOf(teacher) !== 'professor') {
         throw new BadRequestException(
           'Este e-mail já está cadastrado como outro tipo de usuário.',
