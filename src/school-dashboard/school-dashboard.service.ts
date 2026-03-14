@@ -298,15 +298,16 @@ export class SchoolDashboardService {
     if (teacherWasProvisioned && generatedTempPassword) {
       const loginUrl = `${this.getWebUrl()}/login-professor.html`;
 
-      await this.mailService.sendSchoolTeacherAccess({
-        to: teacher.email,
-        teacherName: teacher.name,
-        schoolName: school.name,
-        temporaryPassword: generatedTempPassword,
-        loginUrl,
-        roomName: name,
-        yearName: year.name,
-      });
+  await this.mailService.sendSchoolTeacherAccess({
+  to: teacher.email,
+  teacherName: teacher.name,
+  schoolName: school.name,
+  temporaryPassword: generatedTempPassword,
+  loginUrl,
+  roomName: name,
+  roomCode: savedRoom.code,
+  yearName: year.name,
+});
     }
 
     return {
