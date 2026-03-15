@@ -23,9 +23,6 @@ import { MustChangePasswordGuard } from '../auth/guards/must-change-password.gua
 export class RoomsController {
   constructor(private readonly roomsService: RoomsService) {}
 
-  // ----------------------------------------------------
-  // Helpers (robustos: id pode vir como id | userId | sub)
-  // ----------------------------------------------------
   private norm(v: any) {
     const s = String(v ?? '').trim();
     return s && s !== 'undefined' && s !== 'null' ? s : '';
@@ -56,10 +53,15 @@ export class RoomsController {
     return id;
   }
 
-  /**
-   * ✅ Garante que a sala existe e pertence ao professor logado
-   * (compatibilidade: salas de escola usam professorId=teacherId, então o professor acessa normalmente)
-   */
+  private ensureStudent(req: Request) {
+    const { id, role } = this.getTokenUser(req);
+    if (role !== 'student' && role !== 'aluno') {
+      throw new ForbiddenException('Apenas alunos podem acessar este recurso.');
+    }
+    if (!id) throw new BadRequestException('Sessão inválida.');
+    return id;
+  }
+
   private async ensureProfessorOwnsRoom(req: Request, roomId: string) {
     const professorId = this.ensureProfessor(req);
 
@@ -76,10 +78,6 @@ export class RoomsController {
     return { professorId, room };
   }
 
-  /**
-   * ✅ Garante que a sala existe e pertence à escola logada
-   * (ownerType='SCHOOL' e schoolId = id da escola)
-   */
   private async ensureSchoolOwnsRoom(req: Request, roomId: string) {
     const schoolId = this.ensureSchool(req);
 
@@ -96,49 +94,51 @@ export class RoomsController {
     return { schoolId, room };
   }
 
-  // ============================================================
-  // PROFESSOR (fluxo atual)
-  // ============================================================
+  private async ensureStudentInRoom(req: Request, roomId: string) {
+    const studentId = this.ensureStudent(req);
 
-  /**
-   * ✅ Criação de sala (professor):
-   * - professorId vem do JWT
-   * - regras de limite ficam no service
-   */
+    const rid = this.norm(roomId);
+    if (!rid) throw new BadRequestException('roomId inválido.');
+
+    const room = await this.roomsService.findById(rid);
+    if (!room) throw new BadRequestException('Sala não encontrada.');
+
+    const students = await this.roomsService.findStudents(rid);
+    const isEnrolled = Array.isArray(students)
+      ? students.some((s: any) => String(s?.id || '').trim() === studentId)
+      : false;
+
+    if (!isEnrolled) {
+      throw new ForbiddenException('Você não participa desta sala.');
+    }
+
+    return { studentId, room };
+  }
+
   @Post()
   create(@Req() req: Request, @Body('name') name: string) {
     const professorId = this.ensureProfessor(req);
     return this.roomsService.create(name, professorId);
   }
 
-  /**
-   * ✅ Listar salas do professor logado
-   * - ignora query professorId (segurança)
-   */
   @Get('by-professor')
   findByProfessor(@Req() req: Request) {
     const professorId = this.ensureProfessor(req);
     return this.roomsService.findByProfessor(professorId);
   }
 
-  /**
-   * ✅ Buscar por código (mantido protegido para evitar enumeração)
-   * Se aluno precisar, use /enrollments/join
-   */
   @Get('by-code')
   findByCode(@Req() req: Request, @Query('code') code: string) {
     this.ensureProfessor(req);
     return this.roomsService.findByCode(code);
   }
 
-  // ✅ Alunos matriculados (professor + ownership)
   @Get(':id/students')
   async students(@Req() req: Request, @Param('id') id: string) {
     await this.ensureProfessorOwnsRoom(req, id);
     return this.roomsService.findStudents(id);
   }
 
-  // ✅ Remover aluno da sala (professor + ownership)
   @Delete(':roomId/students/:studentId')
   async removeStudent(
     @Req() req: Request,
@@ -149,48 +149,37 @@ export class RoomsController {
     return this.roomsService.removeStudent(roomId, studentId);
   }
 
-  // ✅ Overview (professor + ownership)
   @Get(':id/overview')
   async overview(@Req() req: Request, @Param('id') id: string) {
     await this.ensureProfessorOwnsRoom(req, id);
     return this.roomsService.overview(id);
   }
 
-  // ✅ Sala + professor (professor + ownership)
+  // ✅ NOVA ROTA PARA O ALUNO
+  @Get(':id/overview-student')
+  async overviewStudent(@Req() req: Request, @Param('id') id: string) {
+    await this.ensureStudentInRoom(req, id);
+    return this.roomsService.overview(id);
+  }
+
   @Get(':id/with-professor')
   async withProfessor(@Req() req: Request, @Param('id') id: string) {
     await this.ensureProfessorOwnsRoom(req, id);
     return this.roomsService.withProfessor(id);
   }
 
-  /**
-   * ✅ Buscar sala por id (professor + ownership)
-   * (Se aluno precisar, crie endpoint específico protegido por role student.)
-   */
   @Get(':id')
   async findById(@Req() req: Request, @Param('id') id: string) {
     await this.ensureProfessorOwnsRoom(req, id);
     return this.roomsService.findById(id);
   }
 
-  // ✅ Remover sala (professor + ownership)
   @Delete(':id')
   async remove(@Req() req: Request, @Param('id') id: string) {
     await this.ensureProfessorOwnsRoom(req, id);
     return this.roomsService.remove(id);
   }
 
-  // ============================================================
-  // ESCOLA (painel escolar)
-  // - criar/listar/renomear/excluir salas
-  // - filtro por ano letivo (schoolYearId)
-  // ============================================================
-
-  /**
-   * ✅ Criar sala via painel escolar
-   * body: { name, teacherId, schoolYearId? }
-   * - schoolId vem do JWT (role=school)
-   */
   @Post('school')
   async createBySchool(
     @Req() req: Request,
@@ -214,10 +203,6 @@ export class RoomsController {
     });
   }
 
-  /**
-   * ✅ Listar salas da escola (com filtro opcional por ano letivo)
-   * GET /rooms/by-school?schoolYearId=...
-   */
   @Get('by-school')
   async listBySchool(@Req() req: Request, @Query('schoolYearId') schoolYearId?: string) {
     const schoolId = this.ensureSchool(req);
@@ -229,10 +214,6 @@ export class RoomsController {
     });
   }
 
-  /**
-   * ✅ Renomear sala (somente escola dona)
-   * PATCH /rooms/:id/school-rename  body: { name }
-   */
   @Patch(':id/school-rename')
   async renameBySchool(
     @Req() req: Request,
@@ -247,16 +228,11 @@ export class RoomsController {
     if (!rid) throw new BadRequestException('id é obrigatório.');
     if (!n) throw new BadRequestException('name é obrigatório.');
 
-    // garante ownership (mensagem melhor)
     await this.ensureSchoolOwnsRoom(req, rid);
 
     return this.roomsService.renameBySchool({ schoolId, roomId: rid, name: n });
   }
 
-  /**
-   * ✅ Excluir sala (somente escola dona)
-   * DELETE /rooms/:id/by-school
-   */
   @Delete(':id/by-school')
   async removeBySchool(@Req() req: Request, @Param('id') id: string) {
     const schoolId = this.ensureSchool(req);
@@ -264,17 +240,11 @@ export class RoomsController {
     const rid = this.norm(id);
     if (!rid) throw new BadRequestException('id é obrigatório.');
 
-    // garante ownership (mensagem melhor)
     await this.ensureSchoolOwnsRoom(req, rid);
 
     return this.roomsService.removeBySchool({ schoolId, roomId: rid });
   }
 
-  /**
-   * ✅ Overview da sala para a escola (somente dona)
-   * GET /rooms/:id/overview-school
-   * (retorna createdAt, teacherNameSnapshot etc. do serviço)
-   */
   @Get(':id/overview-school')
   async overviewSchool(@Req() req: Request, @Param('id') id: string) {
     const rid = this.norm(id);
