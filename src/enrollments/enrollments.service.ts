@@ -11,7 +11,11 @@ import { RoomEntity } from '../rooms/room.entity';
 import { UserEntity } from '../users/user.entity';
 
 function roleOf(user: any) {
-  return String(user?.role || '').trim().toLowerCase();
+  const r = String(user?.role || '').trim().toLowerCase();
+  if (r === 'aluno') return 'student';
+  if (r === 'teacher') return 'professor';
+  if (r === 'escola') return 'school';
+  return r;
 }
 
 @Injectable()
