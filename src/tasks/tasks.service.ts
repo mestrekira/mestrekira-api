@@ -83,4 +83,26 @@ export class TasksService {
       order: { createdAt: 'DESC' as any },
     });
   }
+
+  async findByRoomForStudent(roomId: string, studentId: string) {
+  const rid = String(roomId || '').trim();
+  const sid = String(studentId || '').trim();
+
+  if (!rid || !sid) {
+    throw new BadRequestException('roomId e studentId são obrigatórios.');
+  }
+
+  const enrollment = await this.enrollmentRepo.findOne({
+    where: { roomId: rid, studentId: sid },
+  });
+
+  if (!enrollment) {
+    throw new ForbiddenException('Você não participa desta sala.');
+  }
+
+  return this.taskRepo.find({
+    where: { roomId: rid },
+    order: { createdAt: 'DESC' as any },
+  });
+}
 }
