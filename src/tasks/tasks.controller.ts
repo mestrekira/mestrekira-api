@@ -27,14 +27,51 @@ export class TasksController {
     private readonly roomsService: RoomsService,
   ) {}
 
+  private norm(v: any) {
+    const s = String(v ?? '').trim();
+    return s && s !== 'undefined' && s !== 'null' ? s : '';
+  }
+
+  private normRole(v: any) {
+    const r = String(v || '').trim().toLowerCase();
+    if (r === 'aluno') return 'student';
+    if (r === 'teacher') return 'professor';
+    if (r === 'escola') return 'school';
+    return r;
+  }
+
+  private getTokenUser(req: Request) {
+    const user: any = (req as any)?.user || {};
+    return {
+      id: this.norm(user.id || user.sub || user.userId),
+      role: this.normRole(user.role),
+    };
+  }
+
   private ensureProfessor(req: Request) {
-    const role = String((req as any)?.user?.role || '').toLowerCase();
+    const { id, role } = this.getTokenUser(req);
+
     if (role !== 'professor') {
       throw new ForbiddenException('Apenas professores podem acessar este recurso.');
     }
 
-    const id = String((req as any)?.user?.id || '').trim();
-    if (!id) throw new BadRequestException('Sessão inválida.');
+    if (!id) {
+      throw new BadRequestException('Sessão inválida.');
+    }
+
+    return id;
+  }
+
+  private ensureStudent(req: Request) {
+    const { id, role } = this.getTokenUser(req);
+
+    if (role !== 'student') {
+      throw new ForbiddenException('Apenas alunos podem acessar este recurso.');
+    }
+
+    if (!id) {
+      throw new BadRequestException('Sessão inválida.');
+    }
 
     return id;
   }
@@ -45,7 +82,7 @@ export class TasksController {
   private async ensureProfessorOwnsRoom(req: Request, roomId: string) {
     const professorId = this.ensureProfessor(req);
 
-    const rid = String(roomId || '').trim();
+    const rid = this.norm(roomId);
     if (!rid) throw new BadRequestException('roomId é obrigatório.');
 
     const room = await this.roomsService.findById(rid);
@@ -64,14 +101,16 @@ export class TasksController {
   private async ensureProfessorOwnsTask(req: Request, taskId: string) {
     this.ensureProfessor(req);
 
-    const tid = String(taskId || '').trim();
+    const tid = this.norm(taskId);
     if (!tid) throw new BadRequestException('id é obrigatório.');
 
     const task = await this.tasksService.findById(tid);
     if (!task) throw new NotFoundException('Tarefa não encontrada.');
 
     const roomId = String((task as any).roomId || '').trim();
-    if (!roomId) throw new BadRequestException('Tarefa inválida (roomId ausente).');
+    if (!roomId) {
+      throw new BadRequestException('Tarefa inválida (roomId ausente).');
+    }
 
     await this.ensureProfessorOwnsRoom(req, roomId);
     return task;
@@ -83,8 +122,8 @@ export class TasksController {
    */
   @Post()
   async create(@Req() req: Request, @Body() body: any) {
-    const roomId = String(body?.roomId || '').trim();
-    const title = String(body?.title || '').trim();
+    const roomId = this.norm(body?.roomId);
+    const title = this.norm(body?.title);
     const guidelines = body?.guidelines ?? '';
 
     if (!roomId || !title) {
@@ -101,12 +140,28 @@ export class TasksController {
    */
   @Get('by-room')
   async findByRoom(@Req() req: Request, @Query('roomId') roomId: string) {
-    const rid = String(roomId || '').trim();
+    const rid = this.norm(roomId);
     if (!rid) throw new BadRequestException('roomId é obrigatório.');
 
     await this.ensureProfessorOwnsRoom(req, rid);
 
     return this.tasksService.findByRoom(rid);
+  }
+
+  /**
+   * ✅ Listar tarefas por sala para aluno matriculado
+   * IMPORTANTE: precisa vir antes de @Get(':id')
+   */
+  @Get('by-room-student')
+  async byRoomStudent(@Req() req: Request, @Query('roomId') roomId: string) {
+    const studentId = this.ensureStudent(req);
+    const rid = this.norm(roomId);
+
+    if (!rid) {
+      throw new BadRequestException('roomId é obrigatório.');
+    }
+
+    return this.tasksService.findByRoomForStudent(rid, studentId);
   }
 
   /**
@@ -124,29 +179,7 @@ export class TasksController {
   async remove(@Req() req: Request, @Param('id') id: string) {
     await this.ensureProfessorOwnsTask(req, id);
 
-    const tid = String(id || '').trim();
+    const tid = this.norm(id);
     return this.tasksService.remove(tid);
   }
-
-  @Get('by-room-student')
-@UseGuards(AuthGuard('jwt'))
-async byRoomStudent(@Req() req: Request, @Query('roomId') roomId: string) {
-  const user: any = (req as any).user || {};
-  const studentId = String(user.id || user.sub || '').trim();
-  const role = String(user.role || '').trim().toLowerCase();
-
-  if (role !== 'student' && role !== 'aluno') {
-    throw new ForbiddenException('Apenas alunos podem acessar este recurso.');
-  }
-
-  if (!studentId) {
-    throw new BadRequestException('Sessão inválida.');
-  }
-
-  if (!roomId || !String(roomId).trim()) {
-    throw new BadRequestException('roomId é obrigatório.');
-  }
-
-  return this.tasksService.findByRoomForStudent(String(roomId).trim(), studentId);
-}
 }
