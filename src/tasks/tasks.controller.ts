@@ -165,6 +165,34 @@ export class TasksController {
   }
 
   /**
+   * ✅ Buscar tarefa por id para aluno matriculado
+   * IMPORTANTE: precisa vir antes de @Get(':id')
+   */
+  @Get('student/:id')
+  async findOneForStudent(@Req() req: Request, @Param('id') id: string) {
+    const studentId = this.ensureStudent(req);
+    const tid = this.norm(id);
+
+    if (!tid) {
+      throw new BadRequestException('id é obrigatório.');
+    }
+
+    const task = await this.tasksService.findById(tid);
+    if (!task) {
+      throw new NotFoundException('Tarefa não encontrada.');
+    }
+
+    const roomId = this.norm((task as any)?.roomId);
+    if (!roomId) {
+      throw new BadRequestException('Tarefa inválida (roomId ausente).');
+    }
+
+    await this.tasksService.findByRoomForStudent(roomId, studentId);
+
+    return task;
+  }
+
+  /**
    * ✅ Buscar tarefa por id (professor + ownership via task->room)
    */
   @Get(':id')
