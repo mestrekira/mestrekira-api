@@ -49,16 +49,27 @@ export class TasksService {
     return this.taskRepo.findOne({ where: { id: tid } });
   }
 
-  async findByRoomForStudent(roomId: string, studentId: string) {
-    const r = String(roomId || '').trim();
-    const s = String(studentId || '').trim();
-    if (!r || !s) throw new BadRequestException('roomId e studentId são obrigatórios.');
+ async findByRoomForStudent(roomId: string, studentId: string) {
+  const rid = String(roomId || '').trim();
+  const sid = String(studentId || '').trim();
 
-    const enrollment = await this.enrollmentRepo.findOne({ where: { roomId: r, studentId: s } });
-    if (!enrollment) throw new BadRequestException('Aluno não matriculado na sala');
-
-    return this.taskRepo.find({ where: { roomId: r } });
+  if (!rid || !sid) {
+    throw new BadRequestException('roomId e studentId são obrigatórios.');
   }
+
+  const enrollment = await this.enrollmentRepo.findOne({
+    where: { roomId: rid, studentId: sid },
+  });
+
+  if (!enrollment) {
+    throw new ForbiddenException('Você não participa desta sala.');
+  }
+
+  return this.taskRepo.find({
+    where: { roomId: rid },
+    order: { createdAt: 'DESC' as any },
+  });
+}
 
   // ✅ EXCLUSÃO COMPLETA DA TAREFA: apaga redações -> tarefa
   async remove(id: string) {
@@ -84,25 +95,4 @@ export class TasksService {
     });
   }
 
-  async findByRoomForStudent(roomId: string, studentId: string) {
-  const rid = String(roomId || '').trim();
-  const sid = String(studentId || '').trim();
-
-  if (!rid || !sid) {
-    throw new BadRequestException('roomId e studentId são obrigatórios.');
-  }
-
-  const enrollment = await this.enrollmentRepo.findOne({
-    where: { roomId: rid, studentId: sid },
-  });
-
-  if (!enrollment) {
-    throw new ForbiddenException('Você não participa desta sala.');
-  }
-
-  return this.taskRepo.find({
-    where: { roomId: rid },
-    order: { createdAt: 'DESC' as any },
-  });
-}
 }
