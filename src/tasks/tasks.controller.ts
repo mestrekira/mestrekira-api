@@ -127,4 +127,26 @@ export class TasksController {
     const tid = String(id || '').trim();
     return this.tasksService.remove(tid);
   }
+
+  @Get('by-room-student')
+@UseGuards(AuthGuard('jwt'))
+async byRoomStudent(@Req() req: Request, @Query('roomId') roomId: string) {
+  const user: any = (req as any).user || {};
+  const studentId = String(user.id || user.sub || '').trim();
+  const role = String(user.role || '').trim().toLowerCase();
+
+  if (role !== 'student' && role !== 'aluno') {
+    throw new ForbiddenException('Apenas alunos podem acessar este recurso.');
+  }
+
+  if (!studentId) {
+    throw new BadRequestException('Sessão inválida.');
+  }
+
+  if (!roomId || !String(roomId).trim()) {
+    throw new BadRequestException('roomId é obrigatório.');
+  }
+
+  return this.tasksService.findByRoomForStudent(String(roomId).trim(), studentId);
+}
 }
