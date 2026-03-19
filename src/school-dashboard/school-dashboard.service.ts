@@ -14,6 +14,7 @@ import { UserEntity } from '../users/user.entity';
 import { SchoolYearEntity } from './school-year.entity';
 import { RoomsService } from '../rooms/rooms.service';
 import { MailService } from '../mail/mail.service';
+import { EssaysService } from '../essays/essays.service';
 
 function generateRoomCode() {
   return Math.random().toString(36).slice(2, 8).toUpperCase();
@@ -33,6 +34,7 @@ export class SchoolDashboardService {
 
     private readonly roomsService: RoomsService,
     private readonly mailService: MailService,
+    private readonly essaysService: EssaysService,
   ) {}
 
   private norm(v: any) {
@@ -59,6 +61,21 @@ export class SchoolDashboardService {
       (process.env.APP_WEB_URL || '').trim() ||
       'https://www.mestrekira.com.br/app/frontend'
     );
+  }
+
+  private toNumOrNull(v: any) {
+    if (v === null || v === undefined || v === '') return null;
+    const n = Number(v);
+    return Number.isNaN(n) ? null : n;
+  }
+
+  private mean(nums: any[]) {
+    const arr = (Array.isArray(nums) ? nums : [])
+      .map((n) => this.toNumOrNull(n))
+      .filter((n) => typeof n === 'number') as number[];
+
+    if (!arr.length) return null;
+    return Math.round(arr.reduce((a, b) => a + b, 0) / arr.length);
   }
 
   // ------------------------
@@ -198,31 +215,31 @@ export class SchoolDashboardService {
     let generatedTempPassword: string | null = null;
     let teacherWasProvisioned = false;
 
-       if (!teacher) {
-  generatedTempPassword = this.newTempPassword();
-  const passwordHash = await bcrypt.hash(generatedTempPassword, 10);
+    if (!teacher) {
+      generatedTempPassword = this.newTempPassword();
+      const passwordHash = await bcrypt.hash(generatedTempPassword, 10);
 
-  const createdTeacher = new UserEntity();
-  createdTeacher.name = email.split('@')[0];
-  createdTeacher.email = email;
-  createdTeacher.password = passwordHash;
-  createdTeacher.role = 'professor';
+      const createdTeacher = new UserEntity();
+      createdTeacher.name = email.split('@')[0];
+      createdTeacher.email = email;
+      createdTeacher.password = passwordHash;
+      createdTeacher.role = 'professor';
 
-  (createdTeacher as any).professorType = 'SCHOOL';
-  (createdTeacher as any).schoolId = sid;
-  (createdTeacher as any).mustChangePassword = true;
-  (createdTeacher as any).trialMode = false;
-  (createdTeacher as any).isActive = true;
+      (createdTeacher as any).professorType = 'SCHOOL';
+      (createdTeacher as any).schoolId = sid;
+      (createdTeacher as any).mustChangePassword = true;
+      (createdTeacher as any).trialMode = false;
+      (createdTeacher as any).isActive = true;
 
-  (createdTeacher as any).emailVerified = true;
-  (createdTeacher as any).emailVerifiedAt = new Date();
-  (createdTeacher as any).emailVerifyTokenHash = null;
-  (createdTeacher as any).emailVerifyTokenExpiresAt = null;
+      (createdTeacher as any).emailVerified = true;
+      (createdTeacher as any).emailVerifiedAt = new Date();
+      (createdTeacher as any).emailVerifyTokenHash = null;
+      (createdTeacher as any).emailVerifyTokenExpiresAt = null;
 
-  const savedTeacher = await this.userRepo.save(createdTeacher);
-  teacher = savedTeacher;
-  teacherWasProvisioned = true;
-} else {
+      const savedTeacher = await this.userRepo.save(createdTeacher);
+      teacher = savedTeacher;
+      teacherWasProvisioned = true;
+    } else {
       if (this.roleOf(teacher) !== 'professor') {
         throw new BadRequestException(
           'Este e-mail já está cadastrado como outro tipo de usuário.',
@@ -298,16 +315,16 @@ export class SchoolDashboardService {
     if (teacherWasProvisioned && generatedTempPassword) {
       const loginUrl = `${this.getWebUrl()}/login-professor.html`;
 
-  await this.mailService.sendSchoolTeacherAccess({
-  to: teacher.email,
-  teacherName: teacher.name,
-  schoolName: school.name,
-  temporaryPassword: generatedTempPassword,
-  loginUrl,
-  roomName: name,
-  roomCode: savedRoom.code,
-  yearName: year.name,
-});
+      await this.mailService.sendSchoolTeacherAccess({
+        to: teacher.email,
+        teacherName: teacher.name,
+        schoolName: school.name,
+        temporaryPassword: generatedTempPassword,
+        loginUrl,
+        roomName: name,
+        roomCode: savedRoom.code,
+        yearName: year.name,
+      });
     }
 
     return {
@@ -465,6 +482,23 @@ export class SchoolDashboardService {
 
     const overview = await this.roomsService.overview(rid);
 
+    // desempenho geral da sala
+    const performance = await this.essaysService.performanceByRoom(rid);
+    const corrected = (Array.isArray(performance) ? performance : []).filter(
+      (e) => e?.score !== null && e?.score !== undefined,
+    );
+
+    const mTotal = this.mean(corrected.map((e) => e.score));
+    const mC1 = this.mean(corrected.map((e) => e.c1));
+    const mC2 = this.mean(corrected.map((e) => e.c2));
+    const mC3 = this.mean(corrected.map((e) => e.c3));
+    const mC4 = this.mean(corrected.map((e) => e.c4));
+    const mC5 = this.mean(corrected.map((e) => e.c5));
+
+    const students = Array.isArray((overview as any)?.students)
+      ? (overview as any).students
+      : [];
+
     return {
       ok: true,
       room: {
@@ -476,8 +510,21 @@ export class SchoolDashboardService {
         schoolYearId: room.schoolYearId,
         createdAt: (room as any).createdAt ?? null,
       },
-      overview,
+      overview: {
+        ...(overview || {}),
+        studentsCount: students.length,
+      },
+      performance: {
+        correctedCount: corrected.length,
+        averages: {
+          total: mTotal,
+          c1: mC1,
+          c2: mC2,
+          c3: mC3,
+          c4: mC4,
+          c5: mC5,
+        },
+      },
     };
   }
 }
-
