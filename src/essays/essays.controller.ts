@@ -34,8 +34,10 @@ export class EssaysController {
     if (role !== expected) {
       throw new ForbiddenException(`Apenas ${expected} pode acessar este recurso.`);
     }
+
     const id = String((req as any)?.user?.id || '').trim();
     if (!id) throw new BadRequestException('Sessão inválida.');
+
     return id;
   }
 
@@ -104,6 +106,25 @@ export class EssaysController {
     return essay;
   }
 
+  /**
+   * ✅ Ownership: garante que a ESSAY pertence ao aluno logado
+   */
+  private async ensureStudentOwnsEssay(req: Request, essayId: string) {
+    const studentId = this.ensureStudent(req);
+
+    const eid = String(essayId || '').trim();
+    if (!eid) throw new BadRequestException('id inválido.');
+
+    const essay = await this.essaysService.findOne(eid);
+    if (!essay) throw new NotFoundException('Redação não encontrada.');
+
+    if (String((essay as any).studentId || '').trim() !== studentId) {
+      throw new ForbiddenException('Você não tem acesso a esta redação.');
+    }
+
+    return essay;
+  }
+
   // ✅ ping
   @Get('ping')
   ping() {
@@ -120,7 +141,7 @@ export class EssaysController {
     const tokenStudentId = this.ensureStudent(req);
 
     const taskId = String(body?.taskId || '').trim();
-    const studentIdFromBody = String(body?.studentId || '').trim(); // compat
+    const studentIdFromBody = String(body?.studentId || '').trim();
     const content = body?.content ?? '';
 
     if (!taskId) throw new BadRequestException('taskId é obrigatório.');
@@ -140,7 +161,7 @@ export class EssaysController {
     const tokenStudentId = this.ensureStudent(req);
 
     const taskId = String(body?.taskId || '').trim();
-    const studentIdFromBody = String(body?.studentId || '').trim(); // compat
+    const studentIdFromBody = String(body?.studentId || '').trim();
     const content = body?.content ?? '';
 
     if (!taskId) throw new BadRequestException('taskId é obrigatório.');
@@ -161,7 +182,7 @@ export class EssaysController {
   async findByTaskAndStudent(
     @Req() req: Request,
     @Param('taskId') taskId: string,
-    @Query('studentId') studentId: string, // compat
+    @Query('studentId') studentId: string,
   ) {
     const tokenStudentId = this.ensureStudent(req);
 
@@ -180,6 +201,44 @@ export class EssaysController {
   }
 
   /**
+   * ✅ Performance por sala para aluno (ALUNO)
+   * - studentId vem do JWT
+   * - compat: se vier query studentId, valida
+   */
+  @Get('performance/by-room-for-student')
+  performanceByRoomForStudent(
+    @Req() req: Request,
+    @Query('roomId') roomId: string,
+    @Query('studentId') studentId: string,
+  ) {
+    const tokenStudentId = this.ensureStudent(req);
+
+    const r = String(roomId || '').trim();
+    const s = String(studentId || '').trim();
+
+    if (!r) throw new BadRequestException('roomId é obrigatório.');
+
+    if (s && s !== tokenStudentId) {
+      throw new ForbiddenException('studentId inválido para esta sessão.');
+    }
+
+    return this.essaysService.performanceByRoomForStudent(r, tokenStudentId);
+  }
+
+  /**
+   * ✅ Buscar redação por id (ALUNO dono da redação)
+   * IMPORTANTE: deve vir antes de @Get(':id')
+   */
+  @Get('student/:id')
+  async findOneForStudent(
+    @Req() req: Request,
+    @Param('id', new ParseUUIDPipe({ version: '4' })) id: string,
+  ) {
+    await this.ensureStudentOwnsEssay(req, id);
+    return this.essaysService.findOne(id);
+  }
+
+  /**
    * ✅ Corrigir redação (PROFESSOR + ownership)
    */
   @Post(':id/correct')
@@ -191,7 +250,6 @@ export class EssaysController {
     const essayId = String(id || '').trim();
     if (!essayId) throw new BadRequestException('id é obrigatório.');
 
-    // ✅ garante que a redação é de uma sala do professor
     await this.ensureProfessorOwnsEssay(req, essayId);
 
     const { feedback, c1, c2, c3, c4, c5 } = body || {};
@@ -244,31 +302,6 @@ export class EssaysController {
     await this.ensureProfessorOwnsRoom(req, r);
 
     return this.essaysService.performanceByRoom(r);
-  }
-
-  /**
-   * ✅ Performance por sala para aluno (ALUNO)
-   * - studentId vem do JWT
-   * - compat: se vier query studentId, valida
-   */
-  @Get('performance/by-room-for-student')
-  performanceByRoomForStudent(
-    @Req() req: Request,
-    @Query('roomId') roomId: string,
-    @Query('studentId') studentId: string, // compat
-  ) {
-    const tokenStudentId = this.ensureStudent(req);
-
-    const r = String(roomId || '').trim();
-    const s = String(studentId || '').trim();
-
-    if (!r) throw new BadRequestException('roomId é obrigatório.');
-
-    if (s && s !== tokenStudentId) {
-      throw new ForbiddenException('studentId inválido para esta sessão.');
-    }
-
-    return this.essaysService.performanceByRoomForStudent(r, tokenStudentId);
   }
 
   /**
