@@ -471,60 +471,66 @@ export class SchoolDashboardService {
     return { ok: true };
   }
 
-  async roomOverview(schoolId: string, roomId: string) {
-    const sid = this.ensureUuid(schoolId, 'schoolId');
-    const rid = this.ensureUuid(roomId, 'id');
+async roomOverview(schoolId: string, roomId: string) {
+  const sid = this.ensureUuid(schoolId, 'schoolId');
+  const rid = this.ensureUuid(roomId, 'id');
 
-    const room = await this.roomRepo.findOne({
-      where: { id: rid, ownerType: 'SCHOOL', schoolId: sid } as any,
-    });
-    if (!room) throw new NotFoundException('Sala não encontrada.');
+  const room = await this.roomRepo.findOne({
+    where: { id: rid, ownerType: 'SCHOOL', schoolId: sid } as any,
+  });
+  if (!room) throw new NotFoundException('Sala não encontrada.');
 
-    const overview = await this.roomsService.overview(rid);
+  const year = room.schoolYearId
+    ? await this.yearRepo.findOne({
+        where: { id: room.schoolYearId, schoolId: sid },
+      })
+    : null;
 
-    // desempenho geral da sala
-    const performance = await this.essaysService.performanceByRoom(rid);
-    const corrected = (Array.isArray(performance) ? performance : []).filter(
-      (e) => e?.score !== null && e?.score !== undefined,
-    );
+  const overview = await this.roomsService.overview(rid);
 
-    const mTotal = this.mean(corrected.map((e) => e.score));
-    const mC1 = this.mean(corrected.map((e) => e.c1));
-    const mC2 = this.mean(corrected.map((e) => e.c2));
-    const mC3 = this.mean(corrected.map((e) => e.c3));
-    const mC4 = this.mean(corrected.map((e) => e.c4));
-    const mC5 = this.mean(corrected.map((e) => e.c5));
+  const performance = await this.essaysService.performanceByRoom(rid);
+  const corrected = (Array.isArray(performance) ? performance : []).filter(
+    (e) => e?.score !== null && e?.score !== undefined,
+  );
 
-    const students = Array.isArray((overview as any)?.students)
-      ? (overview as any).students
-      : [];
+  const mTotal = this.mean(corrected.map((e) => e.score));
+  const mC1 = this.mean(corrected.map((e) => e.c1));
+  const mC2 = this.mean(corrected.map((e) => e.c2));
+  const mC3 = this.mean(corrected.map((e) => e.c3));
+  const mC4 = this.mean(corrected.map((e) => e.c4));
+  const mC5 = this.mean(corrected.map((e) => e.c5));
 
-    return {
-      ok: true,
-      room: {
-        id: room.id,
-        name: room.name,
-        code: room.code,
-        teacherNameSnapshot: room.teacherNameSnapshot,
-        teacherId: room.teacherId,
-        schoolYearId: room.schoolYearId,
-        createdAt: (room as any).createdAt ?? null,
+  const students = Array.isArray((overview as any)?.students)
+    ? (overview as any).students
+    : [];
+
+  return {
+    ok: true,
+    room: {
+      id: room.id,
+      name: room.name,
+      code: room.code,
+      teacherNameSnapshot: room.teacherNameSnapshot,
+      teacherId: room.teacherId,
+      schoolYearId: room.schoolYearId,
+      yearName: year?.name ?? null,
+      createdAt: (room as any).createdAt ?? null,
+    },
+    overview: {
+      ...(overview || {}),
+      studentsCount: students.length,
+    },
+    performance: {
+      correctedCount: corrected.length,
+      averages: {
+        total: mTotal,
+        c1: mC1,
+        c2: mC2,
+        c3: mC3,
+        c4: mC4,
+        c5: mC5,
       },
-      overview: {
-        ...(overview || {}),
-        studentsCount: students.length,
-      },
-      performance: {
-        correctedCount: corrected.length,
-        averages: {
-          total: mTotal,
-          c1: mC1,
-          c2: mC2,
-          c3: mC3,
-          c4: mC4,
-          c5: mC5,
-        },
-      },
-    };
-  }
+    },
+  };
+}
 }
