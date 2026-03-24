@@ -84,10 +84,16 @@ export class CleanupService {
       if (u.emailOptOut) continue;
 
       const last = u.last_activity ?? (u.createdAt ?? (await this.getUserCreatedAt(u.id)));
-      const warnAt = this.addDays(last, warnThresholdDays);
-      const deleteAtDefault = this.addDays(last, days);
+      const warnAtBaseline = this.addDays(last, warnThresholdDays);
+      const deleteAtBaseline = this.addDays(last, days);
 
-      const deleteAt = u.scheduledDeletionAt ? new Date(u.scheduledDeletionAt) : deleteAtDefault;
+      // Se o usuário voltou a ter atividade recente, o baseline de aviso vai para o futuro.
+      // Nesse caso ele não deve entrar mais em qualquer fluxo de inatividade.
+      if ((u.inactivityWarnedAt || u.scheduledDeletionAt) && now < warnAtBaseline) {
+        continue;
+      }
+
+      const deleteAt = u.scheduledDeletionAt ? new Date(u.scheduledDeletionAt) : deleteAtBaseline;
 
       const base: Omit<CleanupCandidate, 'reason'> = {
         id: String(u.id),
@@ -95,7 +101,7 @@ export class CleanupService {
         name: String(u.name || ''),
         role: String(u.role || ''),
         lastActivityISO: new Date(last).toISOString(),
-        warnAtISO: new Date(warnAt).toISOString(),
+        warnAtISO: new Date(warnAtBaseline).toISOString(),
         deleteAtISO: new Date(deleteAt).toISOString(),
         inactivityWarnedAtISO: u.inactivityWarnedAt
           ? new Date(u.inactivityWarnedAt).toISOString()
@@ -106,7 +112,7 @@ export class CleanupService {
         emailOptOut: !!u.emailOptOut,
       };
 
-      if (!u.inactivityWarnedAt && now >= warnAt && now < deleteAt) {
+      if (!u.inactivityWarnedAt && now >= warnAtBaseline && now < deleteAt) {
         warnCandidates.push({ ...base, reason: 'warn_window' });
         continue;
       }
@@ -131,12 +137,15 @@ export class CleanupService {
 
   // ============================================================
   // AUTOMÁTICO (CRON) — compatível, mas agora usa computeCandidates()
+  // e limpa flags de usuários que saíram da inatividade
   // ============================================================
   async runInactiveCleanup(days = 90, warnDays = 7, maxWarningsPerRun = 200) {
     maxWarningsPerRun = this.safeInt(maxWarningsPerRun, 200, 1, 5000);
 
     const autoDeleteEnabled = this.envBool('CLEANUP_AUTODELETE_ENABLED', true);
     const includeProfessor = this.envBool('CLEANUP_INCLUDE_PROFESSOR', false);
+
+    const recovered = await this.clearCleanupFlagsForRecovered(days, warnDays);
     const computed = await this.computeCandidates(days, warnDays);
 
     const warnSlice = computed.warnCandidates.slice(0, maxWarningsPerRun);
@@ -173,6 +182,7 @@ export class CleanupService {
       ok: true,
       warned,
       deleted,
+      recoveredCleared: recovered.cleared,
       checked: computed.totals.checked,
       maxWarningsPerRun,
       includeProfessor,
@@ -264,6 +274,94 @@ export class CleanupService {
     }
 
     return { ok: true, deleted, blocked, nowISO: now.toISOString() };
+  }
+
+  // ============================================================
+  // LIMPEZA DE FLAGS QUANDO O USUÁRIO SAI DA INATIVIDADE
+  // ============================================================
+
+  /**
+   * Limpa flags de um usuário específico (uso ideal quando o estudante envia
+   * uma redação final e volta a ter atividade).
+   */
+  async clearCleanupFlagsForUser(userId: string) {
+    const result = await this.dataSource.query(
+      `
+      UPDATE user_entity
+      SET "inactivityWarnedAt" = NULL,
+          "scheduledDeletionAt" = NULL
+      WHERE id = $1
+        AND LOWER(role) = 'student'
+      RETURNING id
+      `,
+      [String(userId)],
+    );
+
+    return {
+      ok: true,
+      cleared: Array.isArray(result) ? result.length : 0,
+      userId: String(userId),
+    };
+  }
+
+  /**
+   * Identifica usuários que tinham flags de inatividade, mas já voltaram
+   * a ficar ativos o suficiente para sair da janela de aviso.
+   */
+  private async findRecoveredUserIds(rawDays = 90, rawWarnDays = 7): Promise<string[]> {
+    const days = this.safeInt(rawDays, 90, 30, 3650);
+    const warnDays = this.safeInt(rawWarnDays, 7, 1, days - 1);
+
+    const includeProfessor = this.envBool('CLEANUP_INCLUDE_PROFESSOR', false);
+    const warnThresholdDays = days - warnDays;
+    const now = new Date();
+
+    const rows = await this.fetchUsersWithLastActivity(includeProfessor);
+    const recoveredIds: string[] = [];
+
+    for (const u of rows) {
+      const hasFlags = !!u.inactivityWarnedAt || !!u.scheduledDeletionAt;
+      if (!hasFlags) continue;
+
+      const last = u.last_activity ?? (u.createdAt ?? (await this.getUserCreatedAt(u.id)));
+      const warnAtBaseline = this.addDays(last, warnThresholdDays);
+
+      // Se o aviso voltaria a acontecer só no futuro, então ele saiu da inatividade.
+      if (now < warnAtBaseline) {
+        recoveredIds.push(String(u.id));
+      }
+    }
+
+    return recoveredIds;
+  }
+
+  /**
+   * Limpa em lote os usuários que já saíram da inatividade.
+   * Útil para o CRON manter o banco coerente.
+   */
+  async clearCleanupFlagsForRecovered(days = 90, warnDays = 7) {
+    const recoveredIds = await this.findRecoveredUserIds(days, warnDays);
+
+    if (recoveredIds.length === 0) {
+      return { ok: true, cleared: 0, userIds: [] as string[] };
+    }
+
+    await this.dataSource.query(
+      `
+      UPDATE user_entity
+      SET "inactivityWarnedAt" = NULL,
+          "scheduledDeletionAt" = NULL
+      WHERE id = ANY($1)
+        AND LOWER(role) = 'student'
+      `,
+      [recoveredIds],
+    );
+
+    return {
+      ok: true,
+      cleared: recoveredIds.length,
+      userIds: recoveredIds,
+    };
   }
 
   // ============================================================
