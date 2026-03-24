@@ -38,9 +38,9 @@ export type CleanupCandidate = {
 };
 
 type CleanupConfig = {
-  days: number;          // ex: 90
-  warnDays: number;      // ex: 7
-  warnThresholdDays: number; // days - warnDays (ex: 83)
+  days: number;
+  warnDays: number;
+  warnThresholdDays: number;
   includeProfessor: boolean;
 };
 
@@ -65,13 +65,13 @@ export class CleanupService {
   ) {}
 
   // ============================================================
-  // ✅ API CENTRAL: computeCandidates (fonte única)
+  // API CENTRAL: computeCandidates (fonte única)
   // ============================================================
   async computeCandidates(rawDays = 90, rawWarnDays = 7): Promise<CandidateCompute> {
     const days = this.safeInt(rawDays, 90, 30, 3650);
     const warnDays = this.safeInt(rawWarnDays, 7, 1, days - 1);
 
-    const includeProfessor = this.envBool('CLEANUP_INCLUDE_PROFESSOR', true);
+    const includeProfessor = this.envBool('CLEANUP_INCLUDE_PROFESSOR', false);
     const warnThresholdDays = days - warnDays;
     const now = new Date();
 
@@ -87,7 +87,6 @@ export class CleanupService {
       const warnAt = this.addDays(last, warnThresholdDays);
       const deleteAtDefault = this.addDays(last, days);
 
-      // Se já está agendado, scheduled é a verdade
       const deleteAt = u.scheduledDeletionAt ? new Date(u.scheduledDeletionAt) : deleteAtDefault;
 
       const base: Omit<CleanupCandidate, 'reason'> = {
@@ -98,18 +97,20 @@ export class CleanupService {
         lastActivityISO: new Date(last).toISOString(),
         warnAtISO: new Date(warnAt).toISOString(),
         deleteAtISO: new Date(deleteAt).toISOString(),
-        inactivityWarnedAtISO: u.inactivityWarnedAt ? new Date(u.inactivityWarnedAt).toISOString() : null,
-        scheduledDeletionAtISO: u.scheduledDeletionAt ? new Date(u.scheduledDeletionAt).toISOString() : null,
+        inactivityWarnedAtISO: u.inactivityWarnedAt
+          ? new Date(u.inactivityWarnedAt).toISOString()
+          : null,
+        scheduledDeletionAtISO: u.scheduledDeletionAt
+          ? new Date(u.scheduledDeletionAt).toISOString()
+          : null,
         emailOptOut: !!u.emailOptOut,
       };
 
-      // janela de aviso (ainda não avisado)
       if (!u.inactivityWarnedAt && now >= warnAt && now < deleteAt) {
         warnCandidates.push({ ...base, reason: 'warn_window' });
         continue;
       }
 
-      // vencido (pelo scheduled ou pelo default)
       if (now >= deleteAt) {
         deleteCandidates.push({ ...base, reason: 'delete_due' });
       }
@@ -129,23 +130,19 @@ export class CleanupService {
   }
 
   // ============================================================
-  // ✅ AUTOMÁTICO (CRON) — compatível, mas agora usa computeCandidates()
+  // AUTOMÁTICO (CRON) — compatível, mas agora usa computeCandidates()
   // ============================================================
   async runInactiveCleanup(days = 90, warnDays = 7, maxWarningsPerRun = 200) {
     maxWarningsPerRun = this.safeInt(maxWarningsPerRun, 200, 1, 5000);
 
     const autoDeleteEnabled = this.envBool('CLEANUP_AUTODELETE_ENABLED', true);
-    const includeProfessor = this.envBool('CLEANUP_INCLUDE_PROFESSOR', true);
-    // mantém coerência com computeCandidates
+    const includeProfessor = this.envBool('CLEANUP_INCLUDE_PROFESSOR', false);
     const computed = await this.computeCandidates(days, warnDays);
 
-    // computeCandidates já filtrou opt-out e etc.
-    // Limite de envios por execução
     const warnSlice = computed.warnCandidates.slice(0, maxWarningsPerRun);
 
     let warned = 0;
     for (const c of warnSlice) {
-      // Revalida estado atual pra evitar corrida
       const fresh = await this.getUserRowById(c.id);
       if (!fresh) continue;
       if (fresh.emailOptOut) continue;
@@ -159,7 +156,6 @@ export class CleanupService {
 
     let deleted = 0;
     if (autoDeleteEnabled) {
-      // aqui só deletamos o que está realmente elegível por regra dura
       for (const c of computed.deleteCandidates) {
         const okToDelete = await this.isReallyDeletable(c.id, computed.now);
         if (!okToDelete) continue;
@@ -185,27 +181,31 @@ export class CleanupService {
   }
 
   // ============================================================
-  // ✅ PREVIEW (ADMIN)
+  // PREVIEW (ADMIN)
   // ============================================================
   async previewInactiveCleanup(days = 90, warnDays = 7) {
     const computed = await this.computeCandidates(days, warnDays);
+
     return {
       ok: true,
       config: computed.config,
       totals: computed.totals,
       warnCandidates: computed.warnCandidates,
       deleteCandidates: computed.deleteCandidates,
+      warnList: computed.warnCandidates,
+      deleteList: computed.deleteCandidates,
       nowISO: computed.now.toISOString(),
     };
   }
 
   // ============================================================
-  // ✅ ADMIN: enviar avisos (manual)
+  // ADMIN: enviar avisos (manual)
   // ============================================================
   async sendWarnings(userIds: string[], days = 90, warnDays = 7) {
-    if (!Array.isArray(userIds) || userIds.length === 0) return { ok: true, sent: 0 };
+    if (!Array.isArray(userIds) || userIds.length === 0) {
+      return { ok: true, sent: 0 };
+    }
 
-    // Use computeCandidates como filtro principal
     const computed = await this.computeCandidates(days, warnDays);
     const allowedSet = new Set(computed.warnCandidates.map((c) => c.id));
 
@@ -231,14 +231,17 @@ export class CleanupService {
   }
 
   // ============================================================
-  // ✅ ADMIN: deletar (manual) — AGORA COM TRAVA FORTE
+  // ADMIN: deletar (manual) — AGORA COM TRAVA FORTE
   // ============================================================
   async deleteUsers(userIds: string[], opts?: { confirm?: boolean }) {
-    if (!Array.isArray(userIds) || userIds.length === 0) return { ok: true, deleted: 0 };
+    if (!Array.isArray(userIds) || userIds.length === 0) {
+      return { ok: true, deleted: 0 };
+    }
 
-    // Exigir confirmação explícita para ações destrutivas
     if (!opts?.confirm) {
-      throw new BadRequestException('Confirmação obrigatória: passe confirm=true para deletar usuários.');
+      throw new BadRequestException(
+        'Confirmação obrigatória: passe confirm=true para deletar usuários.',
+      );
     }
 
     const now = new Date();
@@ -264,7 +267,7 @@ export class CleanupService {
   }
 
   // ============================================================
-  // ✅ REGRA DURA: só deleta se realmente vencido
+  // REGRA DURA: só deleta se realmente vencido
   // - se tem scheduledDeletionAt: now >= scheduledDeletionAt
   // - senão: exige warned e now >= lastActivity + days (default 90)
   // ============================================================
@@ -272,15 +275,11 @@ export class CleanupService {
     const user = await this.getUserRowById(userId);
     if (!user) return false;
 
-    // opt-out não impede delete (apenas e-mail), mas você pode decidir
-    // aqui vamos permitir delete mesmo com opt-out
-
     if (user.scheduledDeletionAt) {
       const scheduled = new Date(user.scheduledDeletionAt);
       return !Number.isNaN(scheduled.getTime()) && now >= scheduled;
     }
 
-    // Sem agendamento: só deleta se avisou e passou o prazo total
     if (!user.inactivityWarnedAt) return false;
 
     const last = await this.getLastActivityForUser(user.id, user.role, user.createdAt);
@@ -298,7 +297,7 @@ export class CleanupService {
   }
 
   // ============================================================
-  // Helpers (mantidos / reaproveitados)
+  // Helpers
   // ============================================================
 
   async markWarnedAndSchedule(userId: string, warnedAt: Date, scheduled: Date) {
@@ -431,7 +430,7 @@ export class CleanupService {
   }
 
   // ============================================================
-  // E-mail + Unsubscribe (mantido)
+  // E-mail + Unsubscribe
   // ============================================================
 
   private async sendInactivityEmail(
