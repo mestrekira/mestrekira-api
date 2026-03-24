@@ -60,19 +60,19 @@ export class AdminController {
     return this.admin.sendWarningsManual(userIds, days, warnDays);
   }
 
-  @Post('cleanup/delete-users')
-  async deleteUsers(@Body() body: { userIds?: string[]; confirm?: boolean }) {
-    const userIds = Array.isArray(body?.userIds) ? body.userIds.map(String) : [];
-    if (userIds.length === 0) {
-      throw new BadRequestException('userIds é obrigatório.');
-    }
-
-    if (body?.confirm !== true) {
-      throw new BadRequestException(
-        'Confirmação obrigatória: envie confirm=true para excluir usuários.',
-      );
-    }
-
-    return this.admin.deleteUsersManual(userIds, true);
+ @Post('cleanup/delete-users')
+async deleteUsers(@Body() body: { userIds?: string[]; confirm?: boolean }) {
+  const userIds = Array.isArray(body?.userIds) ? body.userIds.map(String) : [];
+  if (userIds.length === 0) {
+    throw new BadRequestException('userIds é obrigatório.');
   }
+
+  if (body?.confirm !== true) {
+    throw new BadRequestException(
+      'Confirmação obrigatória: envie confirm=true para excluir usuários.',
+    );
+  }
+
+  return this.admin.deleteUsersManual(userIds, true);
+}
 }
