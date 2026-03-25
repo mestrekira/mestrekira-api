@@ -28,6 +28,18 @@ export class TasksService {
     private readonly roomRepo: Repository<RoomEntity>,
   ) {}
 
+  private assertRoomActive(room: RoomEntity | null) {
+    if (!room) {
+      throw new NotFoundException('Sala não encontrada.');
+    }
+
+    if (room.isActive === false) {
+      throw new ForbiddenException(
+        'Esta sala está desativada e não permite esta operação.',
+      );
+    }
+  }
+
   async create(roomId: string, title: string, guidelines?: string) {
     const r = String(roomId || '').trim();
     const t = String(title || '').trim();
@@ -37,9 +49,7 @@ export class TasksService {
     }
 
     const room = await this.roomRepo.findOne({ where: { id: r } });
-    if (!room) {
-      throw new NotFoundException('Sala não encontrada.');
-    }
+    this.assertRoomActive(room);
 
     const task = this.taskRepo.create({
       roomId: r,
@@ -54,6 +64,11 @@ export class TasksService {
     const r = String(roomId || '').trim();
     if (!r) {
       throw new BadRequestException('roomId é obrigatório.');
+    }
+
+    const room = await this.roomRepo.findOne({ where: { id: r } });
+    if (!room) {
+      throw new NotFoundException('Sala não encontrada.');
     }
 
     return this.taskRepo.find({
@@ -80,9 +95,7 @@ export class TasksService {
     }
 
     const room = await this.roomRepo.findOne({ where: { id: rid } });
-    if (!room) {
-      throw new NotFoundException('Sala não encontrada.');
-    }
+    this.assertRoomActive(room);
 
     const enrollment = await this.enrollmentRepo.findOne({
       where: { roomId: rid, studentId: sid },
@@ -104,6 +117,16 @@ export class TasksService {
       throw new BadRequestException('id é obrigatório.');
     }
 
+    const task = await this.taskRepo.findOne({ where: { id: tid } });
+    if (!task) {
+      throw new NotFoundException('Tarefa não encontrada.');
+    }
+
+    const room = await this.roomRepo.findOne({ where: { id: task.roomId } });
+    if (!room) {
+      throw new NotFoundException('Sala não encontrada.');
+    }
+
     await this.essayRepo.delete({ taskId: tid });
     await this.taskRepo.delete(tid);
 
@@ -113,6 +136,11 @@ export class TasksService {
   async byRoom(roomId: string) {
     const r = String(roomId || '').trim();
     if (!r) return [];
+
+    const room = await this.roomRepo.findOne({ where: { id: r } });
+    if (!room) {
+      throw new NotFoundException('Sala não encontrada.');
+    }
 
     return this.taskRepo.find({
       where: { roomId: r },
