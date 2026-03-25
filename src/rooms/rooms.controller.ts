@@ -253,4 +253,19 @@ export class RoomsController {
     await this.ensureSchoolOwnsRoom(req, rid);
     return this.roomsService.overview(rid);
   }
+
+  @Patch(':id/toggle-active')
+async toggleActive(
+  @Req() req: Request,
+  @Param('id') id: string,
+  @Body('isActive') isActive: boolean,
+) {
+  const { schoolId } = await this.ensureSchoolOwnsRoom(req, id);
+
+  return this.roomsService.toggleActive({
+    roomId: id,
+    schoolId,
+    isActive: !!isActive,
+  });
+}
 }
