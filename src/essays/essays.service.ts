@@ -12,6 +12,7 @@ import { UserEntity } from '../users/user.entity';
 import { TaskEntity } from '../tasks/task.entity';
 import { EnrollmentEntity } from '../enrollments/enrollment.entity';
 import { RoomEntity } from '../rooms/room.entity';
+import { CleanupService } from '../cleanup/cleanup.service';
 
 @Injectable()
 export class EssaysService {
@@ -30,6 +31,8 @@ export class EssaysService {
 
     @InjectRepository(RoomEntity)
     private readonly roomRepo: Repository<RoomEntity>,
+
+    private readonly cleanupService: CleanupService,
   ) {}
 
   /**
@@ -57,7 +60,9 @@ export class EssaysService {
   private async assertStudentEnrolledByTask(taskId: string, studentId: string) {
     const t = String(taskId || '').trim();
     const s = String(studentId || '').trim();
-    if (!t || !s) throw new BadRequestException('taskId e studentId são obrigatórios.');
+    if (!t || !s) {
+      throw new BadRequestException('taskId e studentId são obrigatórios.');
+    }
 
     const task = await this.taskRepo.findOne({ where: { id: t } });
     if (!task) throw new BadRequestException('Tarefa não encontrada.');
@@ -80,7 +85,6 @@ export class EssaysService {
   async saveDraft(taskId: string, studentId: string, content: string) {
     const text = String(content ?? '');
 
-    // (opcional) garante que aluno pertence à sala da tarefa
     await this.assertStudentEnrolledByTask(taskId, studentId);
 
     const existing = await this.essayRepo.findOne({
@@ -137,7 +141,6 @@ export class EssaysService {
   async submit(taskId: string, studentId: string, content: string) {
     const text = String(content ?? '');
 
-    // (opcional) garante matrícula
     await this.assertStudentEnrolledByTask(taskId, studentId);
 
     const body = this.extractBodyFromPackedContent(text);
@@ -157,6 +160,8 @@ export class EssaysService {
       );
     }
 
+    let saved: EssayEntity | null;
+
     if (!existing) {
       const essay = this.essayRepo.create({
         taskId,
@@ -164,15 +169,20 @@ export class EssaysService {
         content: text,
         isDraft: false,
       });
-      return this.essayRepo.save(essay);
+
+      saved = await this.essayRepo.save(essay);
+    } else {
+      await this.essayRepo.update(existing.id, {
+        content: text,
+        isDraft: false,
+      });
+
+      saved = await this.essayRepo.findOne({ where: { id: existing.id } });
     }
 
-    await this.essayRepo.update(existing.id, {
-      content: text,
-      isDraft: false,
-    });
+    await this.cleanupService.clearCleanupFlagsForUser(studentId);
 
-    return this.essayRepo.findOne({ where: { id: existing.id } });
+    return saved;
   }
 
   async findByTaskAndStudent(taskId: string, studentId: string) {
