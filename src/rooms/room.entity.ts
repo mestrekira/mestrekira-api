@@ -55,7 +55,16 @@ export class RoomEntity {
   schoolYearId: string | null;
 
   // ================================
-  // ✅ Datas automáticas (para "Criado em: ...")
+  // ✅ Status da sala
+  // ================================
+  @Column({ type: 'boolean', default: true })
+  isActive: boolean;
+
+  @Column({ type: 'timestamptz', nullable: true })
+  deactivatedAt: Date | null;
+
+  // ================================
+  // ✅ Datas automáticas
   // ================================
   @CreateDateColumn({ type: 'timestamptz' })
   createdAt: Date;
