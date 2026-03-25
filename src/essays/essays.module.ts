@@ -13,22 +13,25 @@ import { RoomEntity } from '../rooms/room.entity';
 import { TasksModule } from '../tasks/tasks.module';
 import { RoomsModule } from '../rooms/rooms.module';
 
+// ✅ IMPORTANTE
+import { CleanupModule } from '../cleanup/cleanup.module';
+
 @Module({
   imports: [
-    // ✅ Repositórios usados pelo EssaysService (e/ou queries auxiliares)
     TypeOrmModule.forFeature([
       EssayEntity,
       UserEntity,
       TaskEntity,
-
-      // ✅ se seu EssaysService usa Enrollment/Room em algum ponto (se não usar, pode remover)
       EnrollmentEntity,
       RoomEntity,
     ]),
 
-    // ✅ Para DI no CONTROLLER (TasksService e RoomsService)
+    // DI do controller
     TasksModule,
     RoomsModule,
+
+    // ✅ ADICIONADO (resolve o erro)
+    CleanupModule,
   ],
   controllers: [EssaysController],
   providers: [EssaysService],
