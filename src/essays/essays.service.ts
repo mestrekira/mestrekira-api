@@ -58,29 +58,42 @@ export class EssaysService {
    * - útil para blindar endpoints do aluno
    */
   private async assertStudentEnrolledByTask(taskId: string, studentId: string) {
-    const t = String(taskId || '').trim();
-    const s = String(studentId || '').trim();
-    if (!t || !s) {
-      throw new BadRequestException('taskId e studentId são obrigatórios.');
-    }
+  const t = String(taskId || '').trim();
+  const s = String(studentId || '').trim();
 
-    const task = await this.taskRepo.findOne({ where: { id: t } });
-    if (!task) throw new BadRequestException('Tarefa não encontrada.');
-
-    const roomId = String((task as any).roomId || '').trim();
-    if (!roomId) throw new BadRequestException('Tarefa sem sala.');
-
-    const enr = await this.enrollmentRepo.findOne({
-      where: { roomId, studentId: s },
-    });
-
-    if (!enr) {
-      throw new ForbiddenException('Aluno não matriculado na sala desta tarefa.');
-    }
-
-    return { task, roomId };
+  if (!t || !s) {
+    throw new BadRequestException('taskId e studentId são obrigatórios.');
   }
 
+  const task = await this.taskRepo.findOne({ where: { id: t } });
+  if (!task) throw new BadRequestException('Tarefa não encontrada.');
+
+  const roomId = String((task as any).roomId || '').trim();
+  if (!roomId) throw new BadRequestException('Tarefa sem sala.');
+
+  // 🔥 NOVO: valida sala
+  const room = await this.roomRepo.findOne({ where: { id: roomId } });
+  if (!room) {
+    throw new BadRequestException('Sala não encontrada.');
+  }
+
+  if (room.isActive === false) {
+    throw new ForbiddenException(
+      'Esta sala está desativada e não permite envio de redações.',
+    );
+  }
+
+  const enr = await this.enrollmentRepo.findOne({
+    where: { roomId, studentId: s },
+  });
+
+  if (!enr) {
+    throw new ForbiddenException('Aluno não matriculado na sala desta tarefa.');
+  }
+
+  return { task, roomId };
+}
+  
   // ✅ salvar rascunho (upsert)
   async saveDraft(taskId: string, studentId: string, content: string) {
     const text = String(content ?? '');
