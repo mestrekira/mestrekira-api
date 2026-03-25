@@ -146,7 +146,7 @@ export class RoomsController {
 
     const name = this.norm(body?.name);
     const teacherId = this.norm(body?.teacherId);
-    const schoolYearId = body?.schoolYearId ? this.norm(body.schoolYearId) : null;
+    const schoolYearId = body?.schoolYearId ? this.norm(body.schoolYearId) : undefined;
 
     if (!name || !teacherId) {
       throw new BadRequestException('name e teacherId são obrigatórios.');
@@ -167,7 +167,7 @@ export class RoomsController {
     const year = this.norm(schoolYearId);
     return this.roomsService.listBySchool({
       schoolId,
-      schoolYearId: year || null,
+      schoolYearId: year || undefined,
     });
   }
 
