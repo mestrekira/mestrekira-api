@@ -76,24 +76,24 @@ export class SchoolDashboardController {
   // Salas (painel escolar)
   // ------------------------
   @Post('rooms')
-createRoom(@Req() req: Request, @Body() body: any) {
-  const schoolId = this.ensureSchool(req);
+  createRoom(@Req() req: Request, @Body() body: any) {
+    const schoolId = this.ensureSchool(req);
 
-  const name = String(body?.name || '').trim();
-  const teacherEmail = String(body?.teacherEmail || '').trim().toLowerCase();
-  const yearId = String(body?.yearId || '').trim();
+    const name = String(body?.name || '').trim();
+    const teacherEmail = String(body?.teacherEmail || '').trim().toLowerCase();
+    const yearId = String(body?.yearId || '').trim();
 
-  if (!name || !teacherEmail || !yearId) {
-    throw new BadRequestException('name, teacherEmail e yearId são obrigatórios.');
+    if (!name || !teacherEmail || !yearId) {
+      throw new BadRequestException('name, teacherEmail e yearId são obrigatórios.');
+    }
+
+    return this.schoolDash.createRoomForTeacherEmail(
+      schoolId,
+      name,
+      teacherEmail,
+      yearId,
+    );
   }
-
-  return this.schoolDash.createRoomForTeacherEmail(
-    schoolId,
-    name,
-    teacherEmail,
-    yearId,
-  );
-}
 
   @Get('rooms')
   listRooms(@Req() req: Request, @Query('yearId') yearId?: string) {
@@ -144,29 +144,27 @@ createRoom(@Req() req: Request, @Body() body: any) {
     return this.schoolDash.roomOverview(schoolId, roomId);
   }
 
-  @Get('debug')
-debug(@Req() req: Request) {
-  const schoolId = this.ensureSchool(req);
-  return {
-    ok: true,
-    schoolId,
-    source: 'school-dashboard-controller',
-  };
-}
-
-  @Get('whoami')
-whoami(@Req() req: Request) {
-  return {
-    ok: true,
-    user: (req as any).user || null,
-  };
-}
-
-    @Delete('account')
+  @Delete('account')
   deleteAccount(@Req() req: Request) {
     const schoolId = this.ensureSchool(req);
     return this.schoolDash.deleteMyAccount(schoolId);
   }
+
+  @Get('debug')
+  debug(@Req() req: Request) {
+    const schoolId = this.ensureSchool(req);
+    return {
+      ok: true,
+      schoolId,
+      source: 'school-dashboard-controller',
+    };
+  }
+
+  @Get('whoami')
+  whoami(@Req() req: Request) {
+    return {
+      ok: true,
+      user: (req as any).user || null,
+    };
+  }
 }
-
-
