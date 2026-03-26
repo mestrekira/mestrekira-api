@@ -97,11 +97,17 @@ export class RoomsService {
     throw new BadRequestException('Não foi possível gerar um código único. Tente novamente.');
   }
 
-  private async deleteRoomCascade(roomId: string) {
+  async deleteRoomCascade(roomId: string) {
     const rid = norm(roomId);
     if (!rid) throw new BadRequestException('roomId é obrigatório.');
 
-    const tasks = await this.taskRepo.find({ where: { roomId: rid } });
+    const room = await this.roomRepo.findOne({ where: { id: rid } });
+    if (!room) throw new NotFoundException('Sala não encontrada.');
+
+    const tasks = await this.taskRepo.find({
+      where: { roomId: rid },
+      select: ['id'],
+    });
     const taskIds = tasks.map((t) => t.id);
 
     if (taskIds.length > 0) {
@@ -115,7 +121,7 @@ export class RoomsService {
 
     await this.taskRepo.delete({ roomId: rid });
     await this.enrollmentRepo.delete({ roomId: rid });
-    await this.roomRepo.delete(rid);
+    await this.roomRepo.delete({ id: rid });
 
     return { ok: true };
   }
