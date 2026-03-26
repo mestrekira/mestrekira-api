@@ -161,6 +161,12 @@ whoami(@Req() req: Request) {
     user: (req as any).user || null,
   };
 }
+
+    @Delete('account')
+  deleteAccount(@Req() req: Request) {
+    const schoolId = this.ensureSchool(req);
+    return this.schoolDash.deleteMyAccount(schoolId);
+  }
 }
 
 
