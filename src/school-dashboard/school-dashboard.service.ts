@@ -205,7 +205,9 @@ export class SchoolDashboardService {
     });
 
     if (schoolRoomsCount >= 10) {
-      throw new BadRequestException('Esta escola já atingiu o limite de 10 salas.');
+      throw new BadRequestException(
+        'Esta escola já atingiu o limite de 10 salas.',
+      );
     }
 
     let teacher: UserEntity | null = await this.userRepo.findOne({
@@ -284,6 +286,21 @@ export class SchoolDashboardService {
       throw new BadRequestException('Não foi possível preparar o professor.');
     }
 
+    // Regra: uma sala por professor dentro da escola
+    const existingRoomForTeacher = await this.roomRepo.findOne({
+      where: {
+        ownerType: 'SCHOOL',
+        schoolId: sid,
+        teacherId: teacher.id,
+      } as FindOptionsWhere<RoomEntity>,
+    });
+
+    if (existingRoomForTeacher) {
+      throw new BadRequestException(
+        'Esta escola só pode cadastrar uma sala para cada professor.',
+      );
+    }
+
     const room = this.roomRepo.create({
       name,
       professorId: teacher.id,
@@ -293,22 +310,56 @@ export class SchoolDashboardService {
       teacherId: teacher.id,
       teacherNameSnapshot: teacher.name,
       schoolYearId: yid,
+      isActive: true,
+      deactivatedAt: null,
     });
 
     let savedRoom: RoomEntity | null = null;
+    let lastError: any = null;
 
     for (let i = 0; i < 5; i++) {
       try {
         savedRoom = await this.roomRepo.save(room);
         break;
-      } catch {
-        room.code = generateRoomCode();
+      } catch (e: any) {
+        lastError = e;
+
+        // PostgreSQL unique violation
+        if (e?.code === '23505') {
+          const detail = String(e?.detail || e?.message || '').toLowerCase();
+
+          // só regenera código se o conflito for realmente do code
+          if (detail.includes('code')) {
+            room.code = generateRoomCode();
+            continue;
+          }
+
+          if (
+            detail.includes('teacherid') ||
+            detail.includes('professorid') ||
+            detail.includes('schoolid')
+          ) {
+            throw new BadRequestException(
+              'Já existe uma sala vinculada a este professor nesta escola.',
+            );
+          }
+
+          throw new BadRequestException(
+            'Conflito de dados ao criar a sala. Verifique se já existe uma sala semelhante.',
+          );
+        }
+
+        throw new BadRequestException(
+          `Falha ao salvar a sala: ${e?.message || 'erro desconhecido'}`,
+        );
       }
     }
 
     if (!savedRoom) {
       throw new BadRequestException(
-        'Não foi possível gerar um código de sala. Tente novamente.',
+        `Não foi possível salvar a sala. ${
+          lastError?.message ? `Detalhe: ${lastError.message}` : ''
+        }`.trim(),
       );
     }
 
@@ -416,7 +467,23 @@ export class SchoolDashboardService {
       }
 
       if (String((teacher as any).schoolId || '').trim() !== sid) {
-        throw new ForbiddenException('Este professor não pertence a esta escola.');
+        throw new ForbiddenException(
+          'Este professor não pertence a esta escola.',
+        );
+      }
+
+      const otherRoomForTeacher = await this.roomRepo.findOne({
+        where: {
+          ownerType: 'SCHOOL',
+          schoolId: sid,
+          teacherId: teacher.id,
+        } as FindOptionsWhere<RoomEntity>,
+      });
+
+      if (otherRoomForTeacher && String(otherRoomForTeacher.id) !== String(rid)) {
+        throw new BadRequestException(
+          'Esta escola só pode cadastrar uma sala para cada professor.',
+        );
       }
 
       upd.teacherId = teacher.id;
