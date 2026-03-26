@@ -216,6 +216,7 @@ export class SchoolDashboardService {
 
     let generatedTempPassword: string | null = null;
     let teacherWasProvisioned = false;
+    let teacherCreatedNow = false;
 
     if (!teacher) {
       generatedTempPassword = this.newTempPassword();
@@ -241,6 +242,7 @@ export class SchoolDashboardService {
       const savedTeacher = await this.userRepo.save(createdTeacher);
       teacher = savedTeacher;
       teacherWasProvisioned = true;
+      teacherCreatedNow = true;
     } else {
       if (this.roleOf(teacher) !== 'professor') {
         throw new BadRequestException(
@@ -286,21 +288,6 @@ export class SchoolDashboardService {
       throw new BadRequestException('Não foi possível preparar o professor.');
     }
 
-    // Regra: uma sala por professor dentro da escola
-    const existingRoomForTeacher = await this.roomRepo.findOne({
-      where: {
-        ownerType: 'SCHOOL',
-        schoolId: sid,
-        teacherId: teacher.id,
-      } as FindOptionsWhere<RoomEntity>,
-    });
-
-    if (existingRoomForTeacher) {
-      throw new BadRequestException(
-        'Esta escola só pode cadastrar uma sala para cada professor.',
-      );
-    }
-
     const room = this.roomRepo.create({
       name,
       professorId: teacher.id,
@@ -324,28 +311,16 @@ export class SchoolDashboardService {
       } catch (e: any) {
         lastError = e;
 
-        // PostgreSQL unique violation
         if (e?.code === '23505') {
           const detail = String(e?.detail || e?.message || '').toLowerCase();
 
-          // só regenera código se o conflito for realmente do code
           if (detail.includes('code')) {
             room.code = generateRoomCode();
             continue;
           }
 
-          if (
-            detail.includes('teacherid') ||
-            detail.includes('professorid') ||
-            detail.includes('schoolid')
-          ) {
-            throw new BadRequestException(
-              'Já existe uma sala vinculada a este professor nesta escola.',
-            );
-          }
-
           throw new BadRequestException(
-            'Conflito de dados ao criar a sala. Verifique se já existe uma sala semelhante.',
+            'Conflito de dados ao criar a sala. Verifique os dados informados.',
           );
         }
 
@@ -363,7 +338,7 @@ export class SchoolDashboardService {
       );
     }
 
-    if (teacherWasProvisioned && generatedTempPassword) {
+    if (teacherCreatedNow && generatedTempPassword) {
       const loginUrl = `${this.getWebUrl()}/login-professor.html`;
 
       await this.mailService.sendSchoolTeacherAccess({
@@ -397,7 +372,7 @@ export class SchoolDashboardService {
         schoolId: (teacher as any).schoolId ?? null,
         mustChangePassword: !!(teacher as any).mustChangePassword,
         createdOrUpdated: teacherWasProvisioned,
-        emailSent: !!(teacherWasProvisioned && generatedTempPassword),
+        emailSent: !!(teacherCreatedNow && generatedTempPassword),
       },
     };
   }
@@ -469,20 +444,6 @@ export class SchoolDashboardService {
       if (String((teacher as any).schoolId || '').trim() !== sid) {
         throw new ForbiddenException(
           'Este professor não pertence a esta escola.',
-        );
-      }
-
-      const otherRoomForTeacher = await this.roomRepo.findOne({
-        where: {
-          ownerType: 'SCHOOL',
-          schoolId: sid,
-          teacherId: teacher.id,
-        } as FindOptionsWhere<RoomEntity>,
-      });
-
-      if (otherRoomForTeacher && String(otherRoomForTeacher.id) !== String(rid)) {
-        throw new BadRequestException(
-          'Esta escola só pode cadastrar uma sala para cada professor.',
         );
       }
 
