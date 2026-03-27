@@ -2,6 +2,7 @@ import {
   Injectable,
   BadRequestException,
   NotFoundException,
+  ForbiddenException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In } from 'typeorm';
@@ -31,12 +32,51 @@ export class EnrollmentsService {
     private readonly userRepo: Repository<UserEntity>,
   ) {}
 
-  async enroll(roomId: string, studentId: string) {
-    const rId = String(roomId || '').trim();
-    const sId = String(studentId || '').trim();
+  private normalizeRoomId(roomId: string) {
+    const value = String(roomId || '').trim();
+    if (!value) throw new BadRequestException('roomId é obrigatório');
+    return value;
+  }
 
-    if (!rId || !sId) {
-      throw new BadRequestException('roomId e studentId são obrigatórios');
+  private normalizeStudentId(studentId: string) {
+    const value = String(studentId || '').trim();
+    if (!value) throw new BadRequestException('studentId é obrigatório');
+    return value;
+  }
+
+  private async assertStudent(studentId: string) {
+    const sId = this.normalizeStudentId(studentId);
+
+    const student = await this.userRepo.findOne({ where: { id: sId } });
+    if (!student) throw new NotFoundException('Aluno não encontrado');
+
+    if (roleOf(student) !== 'student') {
+      throw new BadRequestException(
+        'Somente alunos podem executar esta operação',
+      );
+    }
+
+    return student;
+  }
+
+  private async assertRoomExists(roomId: string) {
+    const rId = this.normalizeRoomId(roomId);
+
+    const room = await this.roomRepo.findOne({ where: { id: rId } });
+    if (!room) throw new NotFoundException('Sala não encontrada');
+
+    return room;
+  }
+
+  async enroll(roomId: string, studentId: string) {
+    const rId = this.normalizeRoomId(roomId);
+    const sId = this.normalizeStudentId(studentId);
+
+    await this.assertStudent(sId);
+
+    const room = await this.assertRoomExists(rId);
+    if (room.isActive === false) {
+      throw new ForbiddenException('Esta sala está desativada.');
     }
 
     const exists = await this.enrollmentRepo.findOne({
@@ -52,27 +92,27 @@ export class EnrollmentsService {
     return this.enrollmentRepo.save(enrollment);
   }
 
-  // 🔹 ENTRADA POR CÓDIGO + ✅ LIMITE 50
+  // Entrar em sala por código
   async joinByCode(code: string, studentId: string) {
     const c = String(code || '').trim().toUpperCase();
-    const sId = String(studentId || '').trim();
+    const sId = this.normalizeStudentId(studentId);
 
-    if (!c || !sId) {
-      throw new BadRequestException('code e studentId são obrigatórios');
+    if (!c) {
+      throw new BadRequestException('code é obrigatório');
     }
 
     const room = await this.roomRepo.findOne({ where: { code: c } });
     if (!room) throw new NotFoundException('Sala não encontrada');
 
-    const student = await this.userRepo.findOne({ where: { id: sId } });
-    if (!student) throw new NotFoundException('Aluno não encontrado');
-
-    if (roleOf(student) !== 'student') {
-      throw new BadRequestException('Somente alunos podem entrar em sala por código');
+    if (room.isActive === false) {
+      throw new ForbiddenException('Esta sala está desativada.');
     }
 
-    // ✅ limite de 50 alunos por sala
-    const count = await this.enrollmentRepo.count({ where: { roomId: room.id } });
+    await this.assertStudent(sId);
+
+    const count = await this.enrollmentRepo.count({
+      where: { roomId: room.id },
+    });
     if (count >= 50) {
       throw new BadRequestException('Sala cheia: máximo de 50 estudantes.');
     }
@@ -81,21 +121,16 @@ export class EnrollmentsService {
   }
 
   async findRoomsByStudent(studentId: string) {
-    const sId = String(studentId || '').trim();
-    if (!sId) throw new BadRequestException('studentId é obrigatório');
+    const sId = this.normalizeStudentId(studentId);
 
-    const student = await this.userRepo.findOne({ where: { id: sId } });
-    if (!student) throw new NotFoundException('Aluno não encontrado');
+    await this.assertStudent(sId);
 
-    if (roleOf(student) !== 'student') {
-      throw new BadRequestException('Apenas alunos podem listar salas por matrícula');
-    }
-
-    const enrollments = await this.enrollmentRepo.find({ where: { studentId: sId } });
+    const enrollments = await this.enrollmentRepo.find({
+      where: { studentId: sId },
+    });
     if (!enrollments.length) return [];
 
     const roomIds = Array.from(new Set(enrollments.map((e) => e.roomId)));
-
     const rooms = await this.roomRepo.findBy({ id: In(roomIds) });
     const map = new Map(rooms.map((r) => [r.id, r]));
 
@@ -107,15 +142,25 @@ export class EnrollmentsService {
         name: r!.name,
         code: r!.code,
         professorId: r!.professorId,
+        isActive: r!.isActive ?? true,
       }));
   }
 
   async leaveRoom(roomId: string, studentId: string) {
-    const rId = String(roomId || '').trim();
-    const sId = String(studentId || '').trim();
+    const rId = this.normalizeRoomId(roomId);
+    const sId = this.normalizeStudentId(studentId);
 
-    if (!rId || !sId) {
-      throw new BadRequestException('roomId e studentId são obrigatórios');
+    await this.assertStudent(sId);
+    await this.assertRoomExists(rId);
+
+    const enrollment = await this.enrollmentRepo.findOne({
+      where: { roomId: rId, studentId: sId },
+    });
+
+    if (!enrollment) {
+      throw new NotFoundException(
+        'Matrícula não encontrada para esta sala.',
+      );
     }
 
     await this.enrollmentRepo.delete({ roomId: rId, studentId: sId });
