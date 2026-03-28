@@ -26,24 +26,17 @@ export class GlobalHttpExceptionFilter implements ExceptionFilter {
       if (typeof payload === 'string') {
         message = payload;
       } else if (payload && typeof payload === 'object') {
-        const body = payload as Record<string, unknown>;
+        const body = payload as Record<string, any>;
 
-        const bodyMessage = body.message;
-        const bodyError = body.error;
-
-        if (Array.isArray(bodyMessage)) {
-          message = bodyMessage.join(' | ');
-        } else if (typeof bodyMessage === 'string' && bodyMessage.trim()) {
-          message = bodyMessage;
+        if (Array.isArray(body.message)) {
+          message = body.message.join(' | ');
+        } else if (typeof body.message === 'string') {
+          message = body.message;
         }
 
-        if (typeof bodyError === 'string' && bodyError.trim()) {
-          error = bodyError;
-        } else {
-          error = this.defaultErrorLabel(statusCode);
-        }
+        error = body.error || this.getDefaultError(statusCode);
       } else {
-        error = this.defaultErrorLabel(statusCode);
+        error = this.getDefaultError(statusCode);
       }
     } else if (exception instanceof Error) {
       message = exception.message || message;
@@ -58,8 +51,8 @@ export class GlobalHttpExceptionFilter implements ExceptionFilter {
     });
   }
 
-  private defaultErrorLabel(statusCode: number): string {
-    switch (statusCode) {
+  private getDefaultError(status: number): string {
+    switch (status) {
       case 400:
         return 'Bad Request';
       case 401:
@@ -70,8 +63,6 @@ export class GlobalHttpExceptionFilter implements ExceptionFilter {
         return 'Not Found';
       case 409:
         return 'Conflict';
-      case 422:
-        return 'Unprocessable Entity';
       default:
         return 'Error';
     }
