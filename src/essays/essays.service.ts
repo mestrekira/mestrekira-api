@@ -3,6 +3,7 @@ import {
   BadRequestException,
   ConflictException,
   ForbiddenException,
+  NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository, QueryFailedError } from 'typeorm';
@@ -35,10 +36,6 @@ export class EssaysService {
     private readonly cleanupService: CleanupService,
   ) {}
 
-  /**
-   * ✅ Extrai o "corpo" da redação quando vier empacotada:
-   * "__TITLE__:titulo\n\ncorpo..."
-   */
   private extractBodyFromPackedContent(content: string) {
     const text = String(content ?? '').replace(/\r\n/g, '\n');
     const m = text.match(/^__TITLE__\s*:\s*.*?\n\n([\s\S]*)$/i);
@@ -53,48 +50,42 @@ export class EssaysService {
     );
   }
 
-  /**
-   * ✅ (opcional) valida se aluno está matriculado na sala da tarefa
-   * - útil para blindar endpoints do aluno
-   */
   private async assertStudentEnrolledByTask(taskId: string, studentId: string) {
-  const t = String(taskId || '').trim();
-  const s = String(studentId || '').trim();
+    const t = String(taskId || '').trim();
+    const s = String(studentId || '').trim();
 
-  if (!t || !s) {
-    throw new BadRequestException('taskId e studentId são obrigatórios.');
+    if (!t || !s) {
+      throw new BadRequestException('taskId e studentId são obrigatórios.');
+    }
+
+    const task = await this.taskRepo.findOne({ where: { id: t } });
+    if (!task) throw new NotFoundException('Tarefa não encontrada.');
+
+    const roomId = String((task as any).roomId || '').trim();
+    if (!roomId) throw new BadRequestException('Tarefa sem sala.');
+
+    const room = await this.roomRepo.findOne({ where: { id: roomId } });
+    if (!room) {
+      throw new NotFoundException('Sala não encontrada.');
+    }
+
+    if (room.isActive === false) {
+      throw new ForbiddenException(
+        'Esta sala está desativada e não permite envio de redações.',
+      );
+    }
+
+    const enr = await this.enrollmentRepo.findOne({
+      where: { roomId, studentId: s },
+    });
+
+    if (!enr) {
+      throw new ForbiddenException('Aluno não matriculado na sala desta tarefa.');
+    }
+
+    return { task, roomId };
   }
 
-  const task = await this.taskRepo.findOne({ where: { id: t } });
-  if (!task) throw new BadRequestException('Tarefa não encontrada.');
-
-  const roomId = String((task as any).roomId || '').trim();
-  if (!roomId) throw new BadRequestException('Tarefa sem sala.');
-
-  // 🔥 NOVO: valida sala
-  const room = await this.roomRepo.findOne({ where: { id: roomId } });
-  if (!room) {
-    throw new BadRequestException('Sala não encontrada.');
-  }
-
-  if (room.isActive === false) {
-    throw new ForbiddenException(
-      'Esta sala está desativada e não permite envio de redações.',
-    );
-  }
-
-  const enr = await this.enrollmentRepo.findOne({
-    where: { roomId, studentId: s },
-  });
-
-  if (!enr) {
-    throw new ForbiddenException('Aluno não matriculado na sala desta tarefa.');
-  }
-
-  return { task, roomId };
-}
-  
-  // ✅ salvar rascunho (upsert)
   async saveDraft(taskId: string, studentId: string, content: string) {
     const text = String(content ?? '');
 
@@ -150,7 +141,6 @@ export class EssaysService {
     return this.essayRepo.findOne({ where: { id: existing.id } });
   }
 
-  // ✅ enviar redação (bloqueia duplicado)
   async submit(taskId: string, studentId: string, content: string) {
     const text = String(content ?? '');
 
@@ -199,6 +189,7 @@ export class EssaysService {
   }
 
   async findByTaskAndStudent(taskId: string, studentId: string) {
+    await this.assertStudentEnrolledByTask(taskId, studentId);
     return this.essayRepo.findOne({ where: { taskId, studentId } });
   }
 
@@ -211,6 +202,11 @@ export class EssaysService {
     c4: number,
     c5: number,
   ) {
+    const existing = await this.essayRepo.findOne({ where: { id } });
+    if (!existing) {
+      throw new NotFoundException('Redação não encontrada.');
+    }
+
     const score =
       Number(c1) + Number(c2) + Number(c3) + Number(c4) + Number(c5);
 
