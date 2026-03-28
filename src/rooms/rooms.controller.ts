@@ -11,6 +11,7 @@ import {
   UseGuards,
   BadRequestException,
   ForbiddenException,
+  NotFoundException,
 } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import type { Request } from 'express';
@@ -69,7 +70,7 @@ export class RoomsController {
     if (!rid) throw new BadRequestException('roomId inválido.');
 
     const room = await this.roomsService.findById(rid);
-    if (!room) throw new BadRequestException('Sala não encontrada.');
+    if (!room) throw new NotFoundException('Sala não encontrada.');
 
     if (String((room as any).professorId || '').trim() !== professorId) {
       throw new ForbiddenException('Você não tem acesso a esta sala.');
@@ -85,7 +86,7 @@ export class RoomsController {
     if (!rid) throw new BadRequestException('roomId inválido.');
 
     const room = await this.roomsService.findById(rid);
-    if (!room) throw new BadRequestException('Sala não encontrada.');
+    if (!room) throw new NotFoundException('Sala não encontrada.');
 
     if (String((room as any).schoolId || '').trim() !== schoolId) {
       throw new ForbiddenException('Você não tem acesso a esta sala.');
@@ -101,7 +102,7 @@ export class RoomsController {
     if (!rid) throw new BadRequestException('roomId inválido.');
 
     const room = await this.roomsService.findById(rid);
-    if (!room) throw new BadRequestException('Sala não encontrada.');
+    if (!room) throw new NotFoundException('Sala não encontrada.');
 
     const students = await this.roomsService.findStudents(rid);
     const isEnrolled = Array.isArray(students)
@@ -204,6 +205,8 @@ export class RoomsController {
 
     const rid = this.norm(id);
     if (!rid) throw new BadRequestException('id é obrigatório.');
+
+    await this.ensureSchoolOwnsRoom(req, rid);
 
     return this.roomsService.toggleActive({
       roomId: rid,
