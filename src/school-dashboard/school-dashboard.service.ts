@@ -173,11 +173,13 @@ export class SchoolDashboardService {
     roomName: string,
     teacherEmail: string,
     yearId: string,
+    teacherName?: string,
   ) {
     const sid = this.ensureUuid(schoolId, 'schoolId');
     const name = this.norm(roomName);
     const email = this.norm(teacherEmail).toLowerCase();
     const yid = this.ensureUuid(yearId, 'yearId');
+    const teacherNameNormalized = this.norm(teacherName);
 
     if (!name) throw new BadRequestException('name é obrigatório.');
     if (!email || !email.includes('@')) {
@@ -223,7 +225,7 @@ export class SchoolDashboardService {
       const passwordHash = await bcrypt.hash(generatedTempPassword, 10);
 
       const createdTeacher = new UserEntity();
-      createdTeacher.name = email.split('@')[0];
+      createdTeacher.name = teacherNameNormalized || email.split('@')[0];
       createdTeacher.email = email;
       createdTeacher.password = passwordHash;
       createdTeacher.role = 'professor';
@@ -266,7 +268,10 @@ export class SchoolDashboardService {
         generatedTempPassword = this.newTempPassword();
         const passwordHash = await bcrypt.hash(generatedTempPassword, 10);
 
-        teacher.name = teacher.name || email.split('@')[0];
+        teacher.name =
+          teacher.name ||
+          teacherNameNormalized ||
+          email.split('@')[0];
         (teacher as any).professorType = 'SCHOOL';
         (teacher as any).schoolId = sid;
         (teacher as any).mustChangePassword = true;
