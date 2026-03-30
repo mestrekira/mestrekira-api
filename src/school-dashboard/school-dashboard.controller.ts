@@ -19,7 +19,7 @@ import { SchoolDashboardService } from './school-dashboard.service';
 import { MustChangePasswordGuard } from '../auth/guards/must-change-password.guard';
 
 @Controller('school-dashboard')
-@UseGuards(AuthGuard('jwt'))
+@UseGuards(AuthGuard('jwt'), MustChangePasswordGuard)
 export class SchoolDashboardController {
   constructor(private readonly schoolDash: SchoolDashboardService) {}
 
@@ -82,6 +82,7 @@ export class SchoolDashboardController {
     const name = String(body?.name || '').trim();
     const teacherEmail = String(body?.teacherEmail || '').trim().toLowerCase();
     const yearId = String(body?.yearId || '').trim();
+    const teacherName = String(body?.teacherName || '').trim();
 
     if (!name || !teacherEmail || !yearId) {
       throw new BadRequestException('name, teacherEmail e yearId são obrigatórios.');
@@ -92,6 +93,7 @@ export class SchoolDashboardController {
       name,
       teacherEmail,
       yearId,
+      teacherName || undefined,
     );
   }
 
