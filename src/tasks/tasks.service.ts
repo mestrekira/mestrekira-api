@@ -28,6 +28,12 @@ export class TasksService {
     private readonly roomRepo: Repository<RoomEntity>,
   ) {}
 
+  private assertRoomExists(room: RoomEntity | null) {
+    if (!room) {
+      throw new NotFoundException('Sala não encontrada.');
+    }
+  }
+
   private assertRoomActive(room: RoomEntity | null) {
     if (!room) {
       throw new NotFoundException('Sala não encontrada.');
@@ -67,9 +73,7 @@ export class TasksService {
     }
 
     const room = await this.roomRepo.findOne({ where: { id: r } });
-    if (!room) {
-      throw new NotFoundException('Sala não encontrada.');
-    }
+    this.assertRoomExists(room);
 
     return this.taskRepo.find({
       where: { roomId: r },
@@ -123,9 +127,7 @@ export class TasksService {
     }
 
     const room = await this.roomRepo.findOne({ where: { id: task.roomId } });
-    if (!room) {
-      throw new NotFoundException('Sala não encontrada.');
-    }
+    this.assertRoomActive(room);
 
     await this.essayRepo.delete({ taskId: tid });
     await this.taskRepo.delete(tid);
@@ -138,9 +140,7 @@ export class TasksService {
     if (!r) return [];
 
     const room = await this.roomRepo.findOne({ where: { id: r } });
-    if (!room) {
-      throw new NotFoundException('Sala não encontrada.');
-    }
+    this.assertRoomExists(room);
 
     return this.taskRepo.find({
       where: { roomId: r },
