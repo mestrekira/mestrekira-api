@@ -50,12 +50,10 @@ export class EssaysService {
     );
   }
 
-  private async assertStudentEnrolledByTask(taskId: string, studentId: string) {
+  private async getTaskRoomByTaskId(taskId: string) {
     const t = String(taskId || '').trim();
-    const s = String(studentId || '').trim();
-
-    if (!t || !s) {
-      throw new BadRequestException('taskId e studentId são obrigatórios.');
+    if (!t) {
+      throw new BadRequestException('taskId é obrigatório.');
     }
 
     const task = await this.taskRepo.findOne({ where: { id: t } });
@@ -69,11 +67,48 @@ export class EssaysService {
       throw new NotFoundException('Sala não encontrada.');
     }
 
+    return { task, room, roomId };
+  }
+
+  private assertRoomActiveForStudent(room: RoomEntity | null) {
+    if (!room) {
+      throw new NotFoundException('Sala não encontrada.');
+    }
+
     if (room.isActive === false) {
       throw new ForbiddenException(
         'Esta sala está desativada e não permite envio de redações.',
       );
     }
+  }
+
+  private assertRoomExists(room: RoomEntity | null) {
+    if (!room) {
+      throw new NotFoundException('Sala não encontrada.');
+    }
+  }
+
+  private assertRoomActiveForCorrection(room: RoomEntity | null) {
+    if (!room) {
+      throw new NotFoundException('Sala não encontrada.');
+    }
+
+    if (room.isActive === false) {
+      throw new ForbiddenException(
+        'Esta sala está desativada e não permite correções.',
+      );
+    }
+  }
+
+  private async assertStudentEnrolledByTask(taskId: string, studentId: string) {
+    const s = String(studentId || '').trim();
+
+    if (!taskId || !s) {
+      throw new BadRequestException('taskId e studentId são obrigatórios.');
+    }
+
+    const { task, room, roomId } = await this.getTaskRoomByTaskId(taskId);
+    this.assertRoomActiveForStudent(room);
 
     const enr = await this.enrollmentRepo.findOne({
       where: { roomId, studentId: s },
@@ -83,7 +118,7 @@ export class EssaysService {
       throw new ForbiddenException('Aluno não matriculado na sala desta tarefa.');
     }
 
-    return { task, roomId };
+    return { task, room, roomId };
   }
 
   async saveDraft(taskId: string, studentId: string, content: string) {
@@ -207,6 +242,9 @@ export class EssaysService {
       throw new NotFoundException('Redação não encontrada.');
     }
 
+    const { room } = await this.getTaskRoomByTaskId(existing.taskId);
+    this.assertRoomActiveForCorrection(room);
+
     const score =
       Number(c1) + Number(c2) + Number(c3) + Number(c4) + Number(c5);
 
@@ -294,6 +332,9 @@ export class EssaysService {
   }
 
   async performanceByRoom(roomId: string) {
+    const room = await this.roomRepo.findOne({ where: { id: roomId } });
+    this.assertRoomExists(room);
+
     const tasks = await this.taskRepo.find({ where: { roomId } });
     if (tasks.length === 0) return [];
 
@@ -344,6 +385,9 @@ export class EssaysService {
   }
 
   async performanceByRoomForStudent(roomId: string, studentId: string) {
+    const room = await this.roomRepo.findOne({ where: { id: roomId } });
+    this.assertRoomExists(room);
+
     const tasks = await this.taskRepo.find({ where: { roomId } });
     if (tasks.length === 0) return [];
 
@@ -380,6 +424,9 @@ export class EssaysService {
   }
 
   async findEssaysWithContentByRoomForStudent(roomId: string, studentId: string) {
+    const room = await this.roomRepo.findOne({ where: { id: roomId } });
+    this.assertRoomExists(room);
+
     const tasks = await this.taskRepo.find({ where: { roomId } });
     if (tasks.length === 0) return [];
 
