@@ -105,12 +105,13 @@ export class SchoolDashboardController {
   }
 
   @Patch('rooms/:id')
-  renameRoom(
+  updateRoom(
     @Req() req: Request,
     @Param('id') roomId: string,
     @Body('name') name?: string,
     @Body('teacherEmail') teacherEmail?: string,
     @Body('yearId') yearId?: string | null,
+    @Body('isActive') isActive?: boolean,
   ) {
     const schoolId = this.ensureSchool(req);
 
@@ -121,16 +122,22 @@ export class SchoolDashboardController {
         : undefined;
     const y = yearId != null ? String(yearId).trim() : undefined;
 
-    if (!n && t == null && y == null) {
+    const hasName = n !== undefined && n !== '';
+    const hasTeacherEmail = teacherEmail != null;
+    const hasYearId = yearId != null;
+    const hasIsActive = typeof isActive === 'boolean';
+
+    if (!hasName && !hasTeacherEmail && !hasYearId && !hasIsActive) {
       throw new BadRequestException(
         'Informe ao menos um campo para atualizar.',
       );
     }
 
     return this.schoolDash.updateRoom(schoolId, roomId, {
-      name: n || undefined,
+      name: hasName ? n : undefined,
       teacherEmail: t,
       yearId: y,
+      isActive,
     });
   }
 
