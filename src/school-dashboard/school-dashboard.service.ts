@@ -367,6 +367,8 @@ export class SchoolDashboardService {
         teacherId: savedRoom.teacherId,
         teacherNameSnapshot: savedRoom.teacherNameSnapshot,
         schoolYearId: savedRoom.schoolYearId,
+        isActive: savedRoom.isActive,
+        deactivatedAt: (savedRoom as any).deactivatedAt ?? null,
         createdAt: (savedRoom as any).createdAt ?? null,
       },
       teacher: {
@@ -407,6 +409,8 @@ export class SchoolDashboardService {
         teacherId: r.teacherId,
         teacherNameSnapshot: r.teacherNameSnapshot,
         schoolYearId: r.schoolYearId,
+        isActive: r.isActive,
+        deactivatedAt: (r as any).deactivatedAt ?? null,
         createdAt: (r as any).createdAt ?? null,
       })),
     };
@@ -415,7 +419,12 @@ export class SchoolDashboardService {
   async updateRoom(
     schoolId: string,
     roomId: string,
-    patch: { name?: string; teacherEmail?: string; yearId?: string | null },
+    patch: {
+      name?: string;
+      teacherEmail?: string;
+      yearId?: string | null;
+      isActive?: boolean;
+    },
   ) {
     const sid = this.ensureUuid(schoolId, 'schoolId');
     const rid = this.ensureUuid(roomId, 'id');
@@ -472,6 +481,12 @@ export class SchoolDashboardService {
       }
     }
 
+    if (patch.isActive != null) {
+      const nextIsActive = !!patch.isActive;
+      upd.isActive = nextIsActive;
+      upd.deactivatedAt = nextIsActive ? null : new Date();
+    }
+
     if (!Object.keys(upd).length) return { ok: true, room };
 
     await this.roomRepo.update({ id: rid } as any, upd as any);
@@ -486,6 +501,8 @@ export class SchoolDashboardService {
         teacherId: updated!.teacherId,
         teacherNameSnapshot: updated!.teacherNameSnapshot,
         schoolYearId: updated!.schoolYearId,
+        isActive: updated!.isActive,
+        deactivatedAt: (updated as any)?.deactivatedAt ?? null,
         createdAt: (updated as any)?.createdAt ?? null,
       },
     };
@@ -600,6 +617,8 @@ export class SchoolDashboardService {
         teacherId: room.teacherId,
         schoolYearId: room.schoolYearId,
         yearName: year?.name ?? null,
+        isActive: room.isActive,
+        deactivatedAt: (room as any).deactivatedAt ?? null,
         createdAt: (room as any).createdAt ?? null,
       },
       overview: {
