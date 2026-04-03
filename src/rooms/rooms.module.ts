@@ -9,6 +9,7 @@ import { EnrollmentEntity } from '../enrollments/enrollment.entity';
 import { TaskEntity } from '../tasks/task.entity';
 import { EssayEntity } from '../essays/essay.entity';
 import { UserEntity } from '../users/user.entity';
+import { SchoolYearEntity } from '../school-dashboard/school-year.entity';
 
 @Module({
   imports: [
@@ -18,6 +19,7 @@ import { UserEntity } from '../users/user.entity';
       TaskEntity,
       EssayEntity,
       UserEntity,
+      SchoolYearEntity,
     ]),
   ],
   controllers: [RoomsController],
@@ -25,4 +27,3 @@ import { UserEntity } from '../users/user.entity';
   exports: [RoomsService],
 })
 export class RoomsModule {}
-
