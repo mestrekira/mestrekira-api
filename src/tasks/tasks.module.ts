@@ -8,8 +8,9 @@ import { TaskEntity } from './task.entity';
 import { EnrollmentEntity } from '../enrollments/enrollment.entity';
 import { EssayEntity } from '../essays/essay.entity';
 import { RoomEntity } from '../rooms/room.entity';
+import { SchoolYearEntity } from '../school-dashboard/school-year.entity'; 
 
-import { RoomsModule } from '../rooms/rooms.module'; // ✅ IMPORTANTE
+import { RoomsModule } from '../rooms/rooms.module';
 
 @Module({
   imports: [
@@ -18,9 +19,10 @@ import { RoomsModule } from '../rooms/rooms.module'; // ✅ IMPORTANTE
       EnrollmentEntity,
       EssayEntity,
       RoomEntity,
+      SchoolYearEntity, 
     ]),
 
-    RoomsModule, // ✅ disponibiliza RoomsService no contexto do TasksModule
+    RoomsModule,
   ],
   controllers: [TasksController],
   providers: [TasksService],
