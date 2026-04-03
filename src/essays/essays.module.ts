@@ -9,11 +9,10 @@ import { UserEntity } from '../users/user.entity';
 import { TaskEntity } from '../tasks/task.entity';
 import { EnrollmentEntity } from '../enrollments/enrollment.entity';
 import { RoomEntity } from '../rooms/room.entity';
+import { SchoolYearEntity } from '../school-dashboard/school-year.entity';
 
 import { TasksModule } from '../tasks/tasks.module';
 import { RoomsModule } from '../rooms/rooms.module';
-
-// ✅ IMPORTANTE
 import { CleanupModule } from '../cleanup/cleanup.module';
 
 @Module({
@@ -24,13 +23,10 @@ import { CleanupModule } from '../cleanup/cleanup.module';
       TaskEntity,
       EnrollmentEntity,
       RoomEntity,
+      SchoolYearEntity,
     ]),
-
-    // DI do controller
     TasksModule,
     RoomsModule,
-
-    // ✅ ADICIONADO (resolve o erro)
     CleanupModule,
   ],
   controllers: [EssaysController],
