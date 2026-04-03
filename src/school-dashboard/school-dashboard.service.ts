@@ -78,6 +78,19 @@ export class SchoolDashboardService {
     return Math.round(arr.reduce((a, b) => a + b, 0) / arr.length);
   }
 
+  private parseOptionalBoolean(v: any): boolean | undefined {
+    if (v === undefined || v === null || v === '') return undefined;
+    if (v === true || v === false) return v;
+    if (v === 1 || v === '1') return true;
+    if (v === 0 || v === '0') return false;
+
+    const s = String(v).trim().toLowerCase();
+    if (s === 'true') return true;
+    if (s === 'false') return false;
+
+    throw new BadRequestException('isActive inválido.');
+  }
+
   // ------------------------
   // Ano letivo
   // ------------------------
@@ -115,7 +128,7 @@ export class SchoolDashboardService {
     schoolId: string,
     yearId: string,
     name?: string,
-    isActive?: boolean,
+    isActive?: any,
   ) {
     const sid = this.ensureUuid(schoolId, 'schoolId');
     const yid = this.ensureUuid(yearId, 'id');
@@ -130,12 +143,15 @@ export class SchoolDashboardService {
     if (name != null) {
       const n = this.norm(name);
       if (!n) throw new BadRequestException('name inválido.');
-      year.name = n;
-      changed = true;
+      if (year.name !== n) {
+        year.name = n;
+        changed = true;
+      }
     }
 
-    if (typeof isActive === 'boolean') {
-      year.isActive = isActive;
+    const parsedIsActive = this.parseOptionalBoolean(isActive);
+    if (parsedIsActive !== undefined && year.isActive !== parsedIsActive) {
+      year.isActive = parsedIsActive;
       changed = true;
     }
 
@@ -145,7 +161,12 @@ export class SchoolDashboardService {
 
     try {
       const saved = await this.yearRepo.save(year);
-      return { ok: true, year: saved };
+
+      const reloaded = await this.yearRepo.findOne({
+        where: { id: yid, schoolId: sid },
+      });
+
+      return { ok: true, year: reloaded ?? saved };
     } catch {
       throw new BadRequestException('Já existe um ano letivo com esse nome.');
     }
