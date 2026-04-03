@@ -125,26 +125,30 @@ export class SchoolDashboardService {
     });
     if (!year) throw new NotFoundException('Ano letivo não encontrado.');
 
-    const patch: Partial<SchoolYearEntity> = {};
+    let changed = false;
 
     if (name != null) {
       const n = this.norm(name);
       if (!n) throw new BadRequestException('name inválido.');
-      patch.name = n;
+      year.name = n;
+      changed = true;
     }
 
-    if (isActive != null) patch.isActive = !!isActive;
+    if (typeof isActive === 'boolean') {
+      year.isActive = isActive;
+      changed = true;
+    }
 
-    if (!Object.keys(patch).length) return { ok: true, year };
+    if (!changed) {
+      return { ok: true, year };
+    }
 
     try {
-      await this.yearRepo.update({ id: yid }, patch);
+      const saved = await this.yearRepo.save(year);
+      return { ok: true, year: saved };
     } catch {
       throw new BadRequestException('Já existe um ano letivo com esse nome.');
     }
-
-    const updated = await this.yearRepo.findOne({ where: { id: yid } });
-    return { ok: true, year: updated };
   }
 
   async deleteYear(schoolId: string, yearId: string) {
@@ -197,6 +201,12 @@ export class SchoolDashboardService {
     });
     if (!year) {
       throw new BadRequestException('Ano letivo inválido para esta escola.');
+    }
+
+    if (year.isActive === false) {
+      throw new BadRequestException(
+        'Este ano letivo está inativo e não permite novas salas.',
+      );
     }
 
     const schoolRoomsCount = await this.roomRepo.count({
@@ -476,6 +486,11 @@ export class SchoolDashboardService {
         });
         if (!year) {
           throw new BadRequestException('Ano letivo inválido para esta escola.');
+        }
+        if (year.isActive === false) {
+          throw new BadRequestException(
+            'Este ano letivo está inativo e não pode ser vinculado à sala.',
+          );
         }
         upd.schoolYearId = y;
       }
