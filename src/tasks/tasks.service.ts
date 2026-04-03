@@ -11,6 +11,7 @@ import { TaskEntity } from './task.entity';
 import { EnrollmentEntity } from '../enrollments/enrollment.entity';
 import { EssayEntity } from '../essays/essay.entity';
 import { RoomEntity } from '../rooms/room.entity';
+import { SchoolYearEntity } from '../school-dashboard/school-year.entity';
 
 @Injectable()
 export class TasksService {
@@ -26,6 +27,9 @@ export class TasksService {
 
     @InjectRepository(RoomEntity)
     private readonly roomRepo: Repository<RoomEntity>,
+
+    @InjectRepository(SchoolYearEntity)
+    private readonly schoolYearRepo: Repository<SchoolYearEntity>,
   ) {}
 
   private assertRoomExists(room: RoomEntity | null) {
@@ -34,7 +38,7 @@ export class TasksService {
     }
   }
 
-  private assertRoomActive(room: RoomEntity | null) {
+  private async assertRoomAvailable(room: RoomEntity | null) {
     if (!room) {
       throw new NotFoundException('Sala não encontrada.');
     }
@@ -42,6 +46,31 @@ export class TasksService {
     if (room.isActive === false) {
       throw new ForbiddenException(
         'Esta sala está desativada e não permite esta operação.',
+      );
+    }
+
+    const isSchoolRoom =
+      String(room.ownerType || '').trim().toUpperCase() === 'SCHOOL';
+
+    const schoolYearId = String(room.schoolYearId || '').trim();
+
+    if (!isSchoolRoom || !schoolYearId) {
+      return;
+    }
+
+    const year = await this.schoolYearRepo.findOne({
+      where: { id: schoolYearId },
+    });
+
+    if (!year) {
+      throw new ForbiddenException(
+        'O ano letivo vinculado a esta sala não foi encontrado.',
+      );
+    }
+
+    if (year.isActive === false) {
+      throw new ForbiddenException(
+        'O ano letivo desta sala está desativado e não permite esta operação.',
       );
     }
   }
@@ -55,7 +84,7 @@ export class TasksService {
     }
 
     const room = await this.roomRepo.findOne({ where: { id: r } });
-    this.assertRoomActive(room);
+    await this.assertRoomAvailable(room);
 
     const task = this.taskRepo.create({
       roomId: r,
@@ -99,7 +128,7 @@ export class TasksService {
     }
 
     const room = await this.roomRepo.findOne({ where: { id: rid } });
-    this.assertRoomActive(room);
+    await this.assertRoomAvailable(room);
 
     const enrollment = await this.enrollmentRepo.findOne({
       where: { roomId: rid, studentId: sid },
@@ -127,7 +156,7 @@ export class TasksService {
     }
 
     const room = await this.roomRepo.findOne({ where: { id: task.roomId } });
-    this.assertRoomActive(room);
+    await this.assertRoomAvailable(room);
 
     await this.essayRepo.delete({ taskId: tid });
     await this.taskRepo.delete(tid);
