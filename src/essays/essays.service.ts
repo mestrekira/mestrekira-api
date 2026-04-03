@@ -13,6 +13,7 @@ import { UserEntity } from '../users/user.entity';
 import { TaskEntity } from '../tasks/task.entity';
 import { EnrollmentEntity } from '../enrollments/enrollment.entity';
 import { RoomEntity } from '../rooms/room.entity';
+import { SchoolYearEntity } from '../school-dashboard/school-year.entity';
 import { CleanupService } from '../cleanup/cleanup.service';
 
 @Injectable()
@@ -32,6 +33,9 @@ export class EssaysService {
 
     @InjectRepository(RoomEntity)
     private readonly roomRepo: Repository<RoomEntity>,
+
+    @InjectRepository(SchoolYearEntity)
+    private readonly schoolYearRepo: Repository<SchoolYearEntity>,
 
     private readonly cleanupService: CleanupService,
   ) {}
@@ -70,32 +74,45 @@ export class EssaysService {
     return { task, room, roomId };
   }
 
-  private assertRoomActiveForStudent(room: RoomEntity | null) {
-    if (!room) {
-      throw new NotFoundException('Sala não encontrada.');
-    }
-
-    if (room.isActive === false) {
-      throw new ForbiddenException(
-        'Esta sala está desativada e não permite envio de redações.',
-      );
-    }
-  }
-
   private assertRoomExists(room: RoomEntity | null) {
     if (!room) {
       throw new NotFoundException('Sala não encontrada.');
     }
   }
 
-  private assertRoomActiveForCorrection(room: RoomEntity | null) {
+  private async assertRoomAvailable(room: RoomEntity | null) {
     if (!room) {
       throw new NotFoundException('Sala não encontrada.');
     }
 
     if (room.isActive === false) {
       throw new ForbiddenException(
-        'Esta sala está desativada e não permite correções.',
+        'Esta sala está desativada e não permite esta operação.',
+      );
+    }
+
+    const isSchoolRoom =
+      String(room.ownerType || '').trim().toUpperCase() === 'SCHOOL';
+
+    const schoolYearId = String(room.schoolYearId || '').trim();
+
+    if (!isSchoolRoom || !schoolYearId) {
+      return;
+    }
+
+    const year = await this.schoolYearRepo.findOne({
+      where: { id: schoolYearId },
+    });
+
+    if (!year) {
+      throw new ForbiddenException(
+        'O ano letivo vinculado a esta sala não foi encontrado.',
+      );
+    }
+
+    if (year.isActive === false) {
+      throw new ForbiddenException(
+        'O ano letivo desta sala está desativado e não permite esta operação.',
       );
     }
   }
@@ -108,7 +125,7 @@ export class EssaysService {
     }
 
     const { task, room, roomId } = await this.getTaskRoomByTaskId(taskId);
-    this.assertRoomActiveForStudent(room);
+    await this.assertRoomAvailable(room);
 
     const enr = await this.enrollmentRepo.findOne({
       where: { roomId, studentId: s },
@@ -243,7 +260,7 @@ export class EssaysService {
     }
 
     const { room } = await this.getTaskRoomByTaskId(existing.taskId);
-    this.assertRoomActiveForCorrection(room);
+    await this.assertRoomAvailable(room);
 
     const score =
       Number(c1) + Number(c2) + Number(c3) + Number(c4) + Number(c5);
