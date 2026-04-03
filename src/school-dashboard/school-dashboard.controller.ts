@@ -55,16 +55,16 @@ export class SchoolDashboardController {
     return this.schoolDash.listYears(schoolId);
   }
 
-  @Patch('years/:id')
-  renameYear(
-    @Req() req: Request,
-    @Param('id') id: string,
-    @Body('name') name?: string,
-    @Body('isActive') isActive?: boolean,
-  ) {
-    const schoolId = this.ensureSchool(req);
-    return this.schoolDash.updateYear(schoolId, id, name, isActive);
-  }
+ @Patch('years/:id')
+renameYear(
+  @Req() req: Request,
+  @Param('id') id: string,
+  @Body('name') name?: string,
+  @Body('isActive') isActive?: any,
+) {
+  const schoolId = this.ensureSchool(req);
+  return this.schoolDash.updateYear(schoolId, id, name, isActive);
+}
 
   @Delete('years/:id')
   deleteYear(@Req() req: Request, @Param('id') id: string) {
