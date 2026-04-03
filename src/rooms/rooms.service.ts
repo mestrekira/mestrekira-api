@@ -12,6 +12,7 @@ import { EnrollmentEntity } from '../enrollments/enrollment.entity';
 import { TaskEntity } from '../tasks/task.entity';
 import { EssayEntity } from '../essays/essay.entity';
 import { UserEntity } from '../users/user.entity';
+import { SchoolYearEntity } from '../school-dashboard/school-year.entity';
 
 function roleOf(user: any) {
   return String(user?.role || '').trim().toLowerCase();
@@ -43,6 +44,9 @@ export class RoomsService {
 
     @InjectRepository(UserEntity)
     private readonly userRepo: Repository<UserEntity>,
+
+    @InjectRepository(SchoolYearEntity)
+    private readonly schoolYearRepo: Repository<SchoolYearEntity>,
   ) {}
 
   private async assertSchool(schoolId: string) {
@@ -91,6 +95,25 @@ export class RoomsService {
       if (!exists) return code;
     }
     throw new BadRequestException('Não foi possível gerar um código único. Tente novamente.');
+  }
+
+  private async isRoomBlockedByYear(room: RoomEntity): Promise<boolean> {
+    const isSchoolRoom =
+      String(room.ownerType || '').trim().toUpperCase() === 'SCHOOL';
+
+    const schoolYearId = String(room.schoolYearId || '').trim();
+
+    if (!isSchoolRoom || !schoolYearId) {
+      return false;
+    }
+
+    const year = await this.schoolYearRepo.findOne({
+      where: { id: schoolYearId },
+    });
+
+    if (!year) return true;
+
+    return year.isActive === false;
   }
 
   async deleteRoomCascade(roomId: string) {
@@ -169,20 +192,53 @@ export class RoomsService {
     const p = norm(professorId);
     if (!p) throw new BadRequestException('professorId é obrigatório.');
 
-    return this.roomRepo.find({
+    const rooms = await this.roomRepo.find({
       where: { professorId: p },
       order: { createdAt: 'DESC' as any },
     });
+
+    const filtered: RoomEntity[] = [];
+
+    for (const room of rooms) {
+      const blocked = await this.isRoomBlockedByYear(room);
+      if (!blocked) {
+        filtered.push(room);
+      }
+    }
+
+    return filtered;
   }
 
   async findByCode(code: string) {
     const c = norm(code).toUpperCase();
     if (!c) throw new BadRequestException('code é obrigatório.');
-    return this.roomRepo.findOne({ where: { code: c } });
+
+    const room = await this.roomRepo.findOne({ where: { code: c } });
+    if (!room) return null;
+
+    const blocked = await this.isRoomBlockedByYear(room);
+    if (blocked) {
+      throw new ForbiddenException(
+        'A sala pertence a um ano letivo inativo e não está disponível.',
+      );
+    }
+
+    return room;
   }
 
   async findAll() {
-    return this.roomRepo.find({ order: { createdAt: 'DESC' as any } });
+    const rooms = await this.roomRepo.find({ order: { createdAt: 'DESC' as any } });
+
+    const filtered: RoomEntity[] = [];
+
+    for (const room of rooms) {
+      const blocked = await this.isRoomBlockedByYear(room);
+      if (!blocked) {
+        filtered.push(room);
+      }
+    }
+
+    return filtered;
   }
 
   async findById(id: string) {
@@ -191,6 +247,13 @@ export class RoomsService {
 
     const room = await this.roomRepo.findOne({ where: { id: rid } });
     if (!room) throw new NotFoundException('Sala não encontrada');
+
+    const blocked = await this.isRoomBlockedByYear(room);
+    if (blocked) {
+      throw new ForbiddenException(
+        'A sala pertence a um ano letivo inativo e não está disponível.',
+      );
+    }
 
     return room;
   }
@@ -211,6 +274,13 @@ export class RoomsService {
 
     const room = await this.roomRepo.findOne({ where: { id: rid } });
     if (!room) throw new NotFoundException('Sala não encontrada');
+
+    const blocked = await this.isRoomBlockedByYear(room);
+    if (blocked) {
+      throw new ForbiddenException(
+        'A sala pertence a um ano letivo inativo e não está disponível.',
+      );
+    }
 
     const professor = await this.userRepo.findOne({
       where: { id: room.professorId },
@@ -249,6 +319,22 @@ export class RoomsService {
     await this.assertSchool(schoolId);
     const teacher = await this.assertTeacherBelongsToSchool(teacherId, schoolId);
 
+    if (schoolYearId) {
+      const year = await this.schoolYearRepo.findOne({
+        where: { id: schoolYearId, schoolId },
+      });
+
+      if (!year) {
+        throw new BadRequestException('Ano letivo inválido para esta escola.');
+      }
+
+      if (year.isActive === false) {
+        throw new BadRequestException(
+          'Este ano letivo está inativo e não permite novas salas.',
+        );
+      }
+    }
+
     const count = await this.roomRepo.count({ where: { schoolId } });
     if (count >= 10) {
       throw new BadRequestException('Limite atingido: máximo de 10 salas por escola.');
@@ -283,10 +369,21 @@ export class RoomsService {
     const where: any = { schoolId };
     if (year) where.schoolYearId = year;
 
-    return this.roomRepo.find({
+    const rooms = await this.roomRepo.find({
       where,
       order: { createdAt: 'DESC' as any },
     });
+
+    const filtered: RoomEntity[] = [];
+
+    for (const r of rooms) {
+      const blocked = await this.isRoomBlockedByYear(r);
+      if (!blocked) {
+        filtered.push(r);
+      }
+    }
+
+    return filtered;
   }
 
   async renameBySchool(params: { schoolId: string; roomId: string; name: string }) {
@@ -363,6 +460,13 @@ export class RoomsService {
     const room = await this.roomRepo.findOne({ where: { id: rid } });
     if (!room) throw new NotFoundException('Sala não encontrada');
 
+    const blocked = await this.isRoomBlockedByYear(room);
+    if (blocked) {
+      throw new ForbiddenException(
+        'A sala pertence a um ano letivo inativo e não está disponível.',
+      );
+    }
+
     const enrollments = await this.enrollmentRepo.find({ where: { roomId: rid } });
     if (enrollments.length === 0) return [];
 
@@ -391,6 +495,13 @@ export class RoomsService {
 
     const room = await this.roomRepo.findOne({ where: { id: rid } });
     if (!room) throw new NotFoundException('Sala não encontrada');
+
+    const blocked = await this.isRoomBlockedByYear(room);
+    if (blocked) {
+      throw new ForbiddenException(
+        'A sala pertence a um ano letivo inativo e não está disponível.',
+      );
+    }
 
     const enrollment = await this.enrollmentRepo.findOne({
       where: { roomId: rid, studentId: sid },
@@ -421,6 +532,13 @@ export class RoomsService {
 
     const room = await this.roomRepo.findOne({ where: { id: rid } });
     if (!room) throw new NotFoundException('Sala não encontrada');
+
+    const blocked = await this.isRoomBlockedByYear(room);
+    if (blocked) {
+      throw new ForbiddenException(
+        'A sala pertence a um ano letivo inativo e não está disponível.',
+      );
+    }
 
     const professor = await this.userRepo.findOne({
       where: { id: room.professorId },
