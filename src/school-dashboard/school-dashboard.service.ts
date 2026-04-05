@@ -295,14 +295,20 @@ export class SchoolDashboardService {
         (teacher as any).professorType || '',
       ).toUpperCase();
 
+      let mustSaveTeacher = false;
+
+      if (teacherNameNormalized && teacher.name !== teacherNameNormalized) {
+        teacher.name = teacherNameNormalized;
+        mustSaveTeacher = true;
+      } else if (!teacher.name) {
+        teacher.name = email.split('@')[0];
+        mustSaveTeacher = true;
+      }
+
       if (teacherSchoolId !== sid || professorType !== 'SCHOOL') {
         generatedTempPassword = this.newTempPassword();
         const passwordHash = await bcrypt.hash(generatedTempPassword, 10);
 
-        teacher.name =
-          teacher.name ||
-          teacherNameNormalized ||
-          email.split('@')[0];
         (teacher as any).professorType = 'SCHOOL';
         (teacher as any).schoolId = sid;
         (teacher as any).mustChangePassword = true;
@@ -314,9 +320,13 @@ export class SchoolDashboardService {
         (teacher as any).emailVerifyTokenHash = null;
         (teacher as any).emailVerifyTokenExpiresAt = null;
 
+        mustSaveTeacher = true;
+        teacherWasProvisioned = true;
+      }
+
+      if (mustSaveTeacher) {
         const savedTeacher: UserEntity = await this.userRepo.save(teacher);
         teacher = savedTeacher;
-        teacherWasProvisioned = true;
       }
     }
 
@@ -331,7 +341,7 @@ export class SchoolDashboardService {
       ownerType: 'SCHOOL',
       schoolId: sid,
       teacherId: teacher.id,
-      teacherNameSnapshot: teacher.name,
+      teacherNameSnapshot: teacherNameNormalized || teacher.name,
       schoolYearId: yid,
       isActive: true,
       deactivatedAt: null,
@@ -493,7 +503,7 @@ export class SchoolDashboardService {
       }
 
       upd.teacherId = teacher.id;
-      upd.teacherNameSnapshot = teacher.name;
+      upd.teacherNameSnapshot = this.norm(teacher.name) || email.split('@')[0];
       upd.professorId = teacher.id;
     }
 
