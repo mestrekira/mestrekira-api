@@ -649,9 +649,39 @@ export class SchoolDashboardService {
     const mC4 = this.mean(corrected.map((e) => e.c4));
     const mC5 = this.mean(corrected.map((e) => e.c5));
 
-    const students = Array.isArray((overview as any)?.students)
+    const studentsRaw = Array.isArray((overview as any)?.students)
       ? (overview as any).students
       : [];
+
+    const scoresByStudent = new Map<string, number[]>();
+
+    for (const e of corrected) {
+      const sidStudent = String(e.studentId || '').trim();
+      const score = this.toNumOrNull(e.score);
+
+      if (!sidStudent || score === null) continue;
+
+      if (!scoresByStudent.has(sidStudent)) {
+        scoresByStudent.set(sidStudent, []);
+      }
+
+      scoresByStudent.get(sidStudent)!.push(score);
+    }
+
+    const students = studentsRaw.map((s: any) => {
+      const sidStudent = String(s.id || '').trim();
+      const scores = scoresByStudent.get(sidStudent) || [];
+
+      const averageScore =
+        scores.length > 0
+          ? Math.round(scores.reduce((a, b) => a + b, 0) / scores.length)
+          : null;
+
+      return {
+        ...s,
+        averageScore,
+      };
+    });
 
     return {
       ok: true,
@@ -669,6 +699,7 @@ export class SchoolDashboardService {
       },
       overview: {
         ...(overview || {}),
+        students,
         studentsCount: students.length,
       },
       performance: {
