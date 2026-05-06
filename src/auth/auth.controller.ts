@@ -103,6 +103,64 @@ export class AuthController {
     return this.auth.registerSchool(n, e, p);
   }
 
+  @Post('register-professor')
+async registerProfessor(
+  @Body('name') name: string,
+  @Body('email') email: string,
+  @Body('password') password: string,
+) {
+  const n = String(name || '').trim();
+  const e = String(email || '').trim().toLowerCase();
+  const p = String(password || '');
+
+  if (!n || !e || !p) {
+    throw new BadRequestException(
+      'Preencha nome, e-mail e senha.',
+    );
+  }
+
+  if (!e.includes('@')) {
+    throw new BadRequestException('E-mail inválido.');
+  }
+
+  if (p.length < 8) {
+    throw new BadRequestException(
+      'Senha deve ter no mínimo 8 caracteres.',
+    );
+  }
+
+  return this.auth.registerProfessor(n, e, p);
+}
+
+@Post('register-student')
+async registerStudent(
+  @Body('name') name: string,
+  @Body('email') email: string,
+  @Body('password') password: string,
+) {
+  const n = String(name || '').trim();
+  const e = String(email || '').trim().toLowerCase();
+  const p = String(password || '');
+
+  if (!n || !e || !p) {
+    throw new BadRequestException(
+      'Preencha nome, e-mail e senha.',
+    );
+  }
+
+  if (!e.includes('@')) {
+    throw new BadRequestException('E-mail inválido.');
+  }
+
+  if (p.length < 8) {
+    throw new BadRequestException(
+      'Senha deve ter no mínimo 8 caracteres.',
+    );
+  }
+
+  return this.auth.registerStudent(n, e, p);
+}
+  
   @Get('verify-email')
   async verifyEmail(
     @Query('token') token: string,
