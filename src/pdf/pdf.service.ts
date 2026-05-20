@@ -1090,11 +1090,7 @@ export class PdfService {
       const page = await browser.newPage();
       await page.setBypassCSP(true);
 
-      try {
-        await page.setContent(html, { waitUntil: 'networkidle0' });
-      } catch {
-        await page.setContent(html, { waitUntil: 'domcontentloaded' });
-      }
+      await page.setContent(html, { waitUntil: 'domcontentloaded' });
 
       const headerTemplate = `
         <div style="width:100%; box-sizing:border-box; padding:0 ${marginLR}; height:${HEADER_MM}mm; display:flex; align-items:center; justify-content:space-between; border-bottom:1px solid rgba(15,23,42,0.10); font-family:Arial, Helvetica, sans-serif;">
