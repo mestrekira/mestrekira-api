@@ -27,6 +27,12 @@ function clamp0to200(n: any) {
   return Math.max(0, Math.min(200, v));
 }
 
+function clamp0to1000(n: any) {
+  const v = Number(n);
+  if (Number.isNaN(v)) return 0;
+  return Math.max(0, Math.min(1000, v));
+}
+
 function escapeHtml(s: any) {
   return String(s ?? '')
     .replace(/&/g, '&amp;')
@@ -34,6 +40,10 @@ function escapeHtml(s: any) {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#039;');
+}
+
+function escapeAttr(s: any) {
+  return escapeHtml(s).replace(/`/g, '&#096;');
 }
 
 function formatDateBR(value: any, tz?: string) {
@@ -61,8 +71,17 @@ function mean(nums: Array<number | null | undefined>) {
   const v = nums
     .map((n) => (n == null ? null : Number(n)))
     .filter((n): n is number => typeof n === 'number' && !Number.isNaN(n));
+
   if (!v.length) return null;
   return Math.round(v.reduce((a, b) => a + b, 0) / v.length);
+}
+
+function statusLabel(score: any) {
+  return score === null || score === undefined ? 'Aguardando correção' : 'Corrigida';
+}
+
+function scoreText(score: any) {
+  return score === null || score === undefined ? '—' : String(score);
 }
 
 function donutSvg({
@@ -72,8 +91,9 @@ function donutSvg({
   c4,
   c5,
   totalText,
-  size = 120,
-  hole = 38,
+  totalValue,
+  size = 128,
+  thickness = 18,
 }: {
   c1: number;
   c2: number;
@@ -81,49 +101,129 @@ function donutSvg({
   c4: number;
   c5: number;
   totalText: string;
+  totalValue?: number | null;
   size?: number;
-  hole?: number;
+  thickness?: number;
 }) {
-  const colors = ['#4f46e5', '#16a34a', '#f59e0b', '#0ea5e9', '#ef4444'];
-  const values = [c1, c2, c3, c4, c5].map((n) => Number(n) || 0);
-  const total = values.reduce((a, b) => a + b, 0);
-  if (!total) return '';
+  const colors = {
+    c1: '#4f46e5',
+    c2: '#16a34a',
+    c3: '#f59e0b',
+    c4: '#0ea5e9',
+    c5: '#ef4444',
+    margin: '#ffffff',
+    base: '#e5e7eb',
+    border: 'rgba(15,23,42,0.18)',
+  };
 
-  const r = size / 2 - 4;
+  const score =
+    totalValue === null || totalValue === undefined
+      ? clamp0to1000(Number(c1 || 0) + Number(c2 || 0) + Number(c3 || 0) + Number(c4 || 0) + Number(c5 || 0))
+      : clamp0to1000(totalValue);
+
+  const values = [
+    { key: 'c1', value: clamp0to200(c1), color: colors.c1 },
+    { key: 'c2', value: clamp0to200(c2), color: colors.c2 },
+    { key: 'c3', value: clamp0to200(c3), color: colors.c3 },
+    { key: 'c4', value: clamp0to200(c4), color: colors.c4 },
+    { key: 'c5', value: clamp0to200(c5), color: colors.c5 },
+    { key: 'margin', value: Math.max(0, 1000 - score), color: colors.margin, margin: true },
+  ];
+
+  const r = (size - thickness) / 2;
   const cx = size / 2;
   const cy = size / 2;
+  const C = 2 * Math.PI * r;
 
-  let angle = 0;
-  const segments: string[] = [];
+  let offset = 0;
 
-  values.forEach((val, i) => {
-    const delta = (val / total) * 360;
-    const start = angle;
-    const end = angle + delta;
+  const circles = values
+    .map((seg) => {
+      const len = Math.max(0, (seg.value / 1000) * C);
+      const dash = `${len} ${C - len}`;
+      const stroke = seg.color;
+      const extra = seg.margin ? `class="margin-segment"` : '';
 
-    const rad = (deg: number) => ((deg - 90) * Math.PI) / 180;
-    const x1 = cx + r * Math.cos(rad(start));
-    const y1 = cy + r * Math.sin(rad(start));
-    const x2 = cx + r * Math.cos(rad(end));
-    const y2 = cy + r * Math.sin(rad(end));
+      const out = `
+        <circle
+          ${extra}
+          cx="${cx}"
+          cy="${cy}"
+          r="${r}"
+          fill="none"
+          stroke="${stroke}"
+          stroke-width="${thickness}"
+          stroke-dasharray="${dash}"
+          stroke-dashoffset="${-offset}"
+          transform="rotate(-90 ${cx} ${cy})"
+        />
+      `;
 
-    const large = delta > 180 ? 1 : 0;
-
-    segments.push(
-      `<path d="M${cx},${cy} L${x1},${y1} A${r},${r} 0 ${large},1 ${x2},${y2} Z" fill="${colors[i]}" />`,
-    );
-
-    angle += delta;
-  });
+      offset += len;
+      return out;
+    })
+    .join('');
 
   return `
-  <svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">
-    ${segments.join('\n')}
-    <circle cx="${cx}" cy="${cy}" r="${hole}" fill="#fff"/>
-    <text x="${cx}" y="${cy + 6}" text-anchor="middle" font-size="16" font-weight="900" fill="#0f172a">
-      ${escapeHtml(totalText)}
-    </text>
-  </svg>
+    <svg class="donut-svg" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}" aria-hidden="true">
+      <circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="${colors.base}" stroke-width="${thickness}" />
+      ${circles}
+      <circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="${colors.border}" stroke-width="1" />
+      <circle cx="${cx}" cy="${cy}" r="${Math.max(1, r - thickness / 2 - 3)}" fill="#ffffff" />
+      <text x="${cx}" y="${cy - 2}" text-anchor="middle" font-size="20" font-weight="900" fill="#0f172a">
+        ${escapeHtml(totalText)}
+      </text>
+      <text x="${cx}" y="${cy + 15}" text-anchor="middle" font-size="8.5" font-weight="700" fill="#64748b">
+        pontos
+      </text>
+    </svg>
+  `;
+}
+
+function miniDonutSvg(score: number | null, size = 66, thickness = 9) {
+  const safeScore = score === null || score === undefined ? null : clamp0to1000(score);
+  const value = safeScore ?? 0;
+  const margin = safeScore === null ? 1000 : Math.max(0, 1000 - safeScore);
+
+  const r = (size - thickness) / 2;
+  const cx = size / 2;
+  const cy = size / 2;
+  const C = 2 * Math.PI * r;
+
+  const lenValue = (value / 1000) * C;
+  const lenMargin = (margin / 1000) * C;
+
+  return `
+    <svg class="mini-donut-svg" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}" aria-hidden="true">
+      <circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="#e5e7eb" stroke-width="${thickness}" />
+      <circle
+        cx="${cx}"
+        cy="${cy}"
+        r="${r}"
+        fill="none"
+        stroke="#4f46e5"
+        stroke-width="${thickness}"
+        stroke-dasharray="${lenValue} ${C - lenValue}"
+        stroke-dashoffset="0"
+        transform="rotate(-90 ${cx} ${cy})"
+      />
+      <circle
+        cx="${cx}"
+        cy="${cy}"
+        r="${r}"
+        fill="none"
+        stroke="#ffffff"
+        stroke-width="${thickness}"
+        stroke-dasharray="${lenMargin} ${C - lenMargin}"
+        stroke-dashoffset="${-lenValue}"
+        transform="rotate(-90 ${cx} ${cy})"
+      />
+      <circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="rgba(15,23,42,0.15)" stroke-width="1" />
+      <circle cx="${cx}" cy="${cy}" r="${Math.max(1, r - thickness / 2 - 2)}" fill="#ffffff" />
+      <text x="${cx}" y="${cy + 4}" text-anchor="middle" font-size="11" font-weight="900" fill="#0f172a">
+        ${safeScore === null ? '—' : String(safeScore)}
+      </text>
+    </svg>
   `;
 }
 
@@ -137,9 +237,8 @@ export class PdfService {
   }): Promise<Buffer> {
     const { studentName, roomName, essays, tasks } = params;
 
-    const safeStudent = escapeHtml(studentName);
-    const safeRoom = escapeHtml(roomName);
-
+    const safeStudent = escapeHtml(studentName || 'Estudante');
+    const safeRoom = escapeHtml(roomName || 'Sala');
     const timeZone = String(process.env.PDF_TZ || 'America/Sao_Paulo').trim();
 
     const logoUrlEnv = String(process.env.PDF_LOGO_URL || '').trim();
@@ -157,20 +256,15 @@ export class PdfService {
 
     if (logoUrlEnv) {
       const isData = /^data:image\//i.test(logoUrlEnv);
-      if (isData) {
-        logoDataUrl = logoUrlEnv;
-      } else {
-        logoDataUrl = loadLocalLogo() || logoUrlEnv;
-      }
+      logoDataUrl = isData ? logoUrlEnv : loadLocalLogo() || logoUrlEnv;
     } else {
       logoDataUrl = loadLocalLogo();
       if (!logoDataUrl) {
-        // não quebra o PDF, só avisa
         console.warn('[PDF] Logo não encontrada em assets/logo1.png e PDF_LOGO_URL não definido.');
       }
     }
 
-    const tasksMap = new Map((tasks || []).map((t) => [t.id, t.title]));
+    const tasksMap = new Map((tasks || []).map((t) => [String(t.id), t.title]));
 
     const sorted = [...(essays || [])].sort((a, b) => {
       const ta = new Date(a.createdAt ?? a.updatedAt ?? 0).getTime();
@@ -178,7 +272,7 @@ export class PdfService {
       return tb - ta;
     });
 
-    const corrected = sorted.filter((e) => e.score != null);
+    const corrected = sorted.filter((e) => e.score !== null && e.score !== undefined);
 
     const averages = {
       total: mean(corrected.map((e) => e.score)),
@@ -189,16 +283,42 @@ export class PdfService {
       c5: mean(corrected.map((e) => e.c5)),
     };
 
+    const generatedAt = formatDateBR(new Date(), timeZone);
+    const totalEssays = sorted.length;
+    const correctedCount = corrected.length;
+    const pendingCount = Math.max(0, totalEssays - correctedCount);
+
+    const avgDonut =
+      averages.total !== null
+        ? donutSvg({
+            c1: averages.c1 ?? 0,
+            c2: averages.c2 ?? 0,
+            c3: averages.c3 ?? 0,
+            c4: averages.c4 ?? 0,
+            c5: averages.c5 ?? 0,
+            totalText: String(averages.total),
+            totalValue: averages.total,
+            size: 142,
+            thickness: 20,
+          })
+        : `<div class="empty-chart">Sem correções</div>`;
+
     const summaryRows = sorted
-      .map((e) => {
-        const title = e.taskTitle || tasksMap.get(e.taskId) || 'Tarefa';
+      .map((e, index) => {
+        const title = e.taskTitle || tasksMap.get(String(e.taskId)) || 'Tarefa';
         const dt = formatDateBR(e.createdAt ?? e.updatedAt, timeZone);
-        const score = e.score ?? '—';
+        const score = e.score ?? null;
+        const status = statusLabel(score);
+
         return `
           <tr>
-            <td class="cell-title">${escapeHtml(title)}</td>
+            <td class="summary-index">${index + 1}</td>
+            <td class="summary-title">${escapeHtml(title)}</td>
             <td>${escapeHtml(dt)}</td>
-            <td style="text-align:right;">${escapeHtml(score)}</td>
+            <td>
+              <span class="status-pill ${score == null ? 'pending' : 'done'}">${escapeHtml(status)}</span>
+            </td>
+            <td class="summary-score">${escapeHtml(scoreText(score))}</td>
           </tr>
         `;
       })
@@ -206,7 +326,7 @@ export class PdfService {
 
     const details = sorted
       .map((e, idx) => {
-        const title = e.taskTitle || tasksMap.get(e.taskId) || `Tarefa ${idx + 1}`;
+        const title = e.taskTitle || tasksMap.get(String(e.taskId)) || `Tarefa ${idx + 1}`;
         const score = e.score ?? null;
 
         const c1 = clamp0to200(e.c1);
@@ -216,59 +336,62 @@ export class PdfService {
         const c5 = clamp0to200(e.c5);
 
         const content = escapeHtml(e.content || 'Redação não disponível.');
+        const sentAt = formatDateBR(e.createdAt ?? e.updatedAt, timeZone);
+
+        const chart =
+          score !== null && score !== undefined
+            ? donutSvg({
+                c1,
+                c2,
+                c3,
+                c4,
+                c5,
+                totalText: String(score),
+                totalValue: Number(score),
+                size: 118,
+                thickness: 17,
+              })
+            : `<div class="empty-chart small">Sem correção</div>`;
 
         return `
-          <div class="card task">
-            <div class="taskGrid">
-              <div class="taskInfo">
-                <div class="task-title" title="${escapeHtml(title)}">${escapeHtml(title)}</div>
-                <div class="muted">Enviada em: ${escapeHtml(formatDateBR(e.createdAt ?? e.updatedAt, timeZone))}</div>
-                <div class="muted">Nota: ${
-                  score == null ? '— (não corrigida)' : `${escapeHtml(score)} / 1000`
-                }</div>
+          <article class="essay-card">
+            <div class="essay-top">
+              <div class="essay-title-area">
+                <div class="essay-number">Redação ${idx + 1}</div>
+                <h3>${escapeHtml(title)}</h3>
+                <p>Enviada em: <strong>${escapeHtml(sentAt)}</strong></p>
               </div>
 
-              <div class="taskChart" aria-label="Gráfico de competências">
-                ${
-                  score != null
-                    ? donutSvg({
-                        c1,
-                        c2,
-                        c3,
-                        c4,
-                        c5,
-                        totalText: String(score),
-                        size: 120,
-                        hole: 38,
-                      })
-                    : `<div class="muted">—</div>`
-                }
+              <div class="essay-score-area">
+                ${chart}
               </div>
             </div>
 
-            <div class="essayBox">
-              <div class="essayHeader">Redação</div>
-              <div class="essayContent">${content}</div>
+            <div class="competence-grid">
+              <div class="competence c1"><span>C1</span><strong>${score == null ? '—' : c1}</strong></div>
+              <div class="competence c2"><span>C2</span><strong>${score == null ? '—' : c2}</strong></div>
+              <div class="competence c3"><span>C3</span><strong>${score == null ? '—' : c3}</strong></div>
+              <div class="competence c4"><span>C4</span><strong>${score == null ? '—' : c4}</strong></div>
+              <div class="competence c5"><span>C5</span><strong>${score == null ? '—' : c5}</strong></div>
+              <div class="competence total"><span>Nota</span><strong>${score == null ? '—' : `${escapeHtml(score)} / 1000`}</strong></div>
             </div>
-          </div>
+
+            <div class="essay-text-box">
+              <div class="essay-text-head">Texto da redação</div>
+              <div class="essay-content">${content}</div>
+            </div>
+          </article>
         `;
       })
       .join('');
 
-    const HEADER_MM = Number(process.env.PDF_HEADER_MM || 16);
-    const FOOTER_MM = Number(process.env.PDF_FOOTER_MM || 14);
+    const HEADER_MM = Number(process.env.PDF_HEADER_MM || 14);
+    const FOOTER_MM = Number(process.env.PDF_FOOTER_MM || 12);
+    const LR_MM = Number(process.env.PDF_MARGIN_LR_MM || 16);
 
-    const TOP_GAP_MM = Number(process.env.PDF_TOP_GAP_MM || 10);
-    const BOTTOM_GAP_MM = Number(process.env.PDF_BOTTOM_GAP_MM || 8);
-
-    const LR_MM = Number(process.env.PDF_MARGIN_LR_MM || 20);
-
-    const TOP_MM = Number(process.env.PDF_MARGIN_TOP_MM || HEADER_MM + TOP_GAP_MM + 6);
-    const BOTTOM_MM = Number(process.env.PDF_MARGIN_BOTTOM_MM || FOOTER_MM + BOTTOM_GAP_MM + 6);
-
-    const marginTop = `${Math.max(TOP_MM, HEADER_MM + 12)}mm`;
-    const marginBottom = `${Math.max(BOTTOM_MM, FOOTER_MM + 10)}mm`;
-    const marginLR = `${Math.max(LR_MM, 15)}mm`;
+    const marginTop = `${Math.max(Number(process.env.PDF_MARGIN_TOP_MM || 24), HEADER_MM + 8)}mm`;
+    const marginBottom = `${Math.max(Number(process.env.PDF_MARGIN_BOTTOM_MM || 20), FOOTER_MM + 8)}mm`;
+    const marginLR = `${Math.max(LR_MM, 14)}mm`;
 
     const html = `
 <!DOCTYPE html>
@@ -277,160 +400,624 @@ export class PdfService {
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
 <style>
-  :root{
-    --ink:#0f172a;
-    --muted:#64748b;
-    --line:#e5e7eb;
-    --soft:#f8fafc;
+  :root {
+    --ink: #0f172a;
+    --muted: #64748b;
+    --soft: #f8fafc;
+    --soft-2: #f1f5f9;
+    --line: #e2e8f0;
+    --navy: #0b1f4b;
+    --purple: #6d28d9;
+    --cream: #f6f2e8;
+    --c1: #4f46e5;
+    --c2: #16a34a;
+    --c3: #f59e0b;
+    --c4: #0ea5e9;
+    --c5: #ef4444;
   }
 
-  @page { size:A4; margin: 0; }
+  @page {
+    size: A4;
+    margin: 0;
+  }
 
-  html, body { padding:0; margin:0; }
-  body { font-family: Arial, sans-serif; color:var(--ink); }
+  * {
+    box-sizing: border-box;
+  }
 
-  h2, h3 { margin: 0 0 10px 0; }
-  .muted { font-size:12px; color:var(--muted); }
-  .section { padding: 0; }
+  html,
+  body {
+    padding: 0;
+    margin: 0;
+  }
 
-  .cover { page-break-after: always; break-after: page; }
-  .coverWrap { min-height: 230mm; display:flex; align-items:center; }
-  .coverInner { width:100%; }
+  body {
+    font-family: Arial, Helvetica, sans-serif;
+    color: var(--ink);
+    background: #ffffff;
+    font-size: 12px;
+  }
 
-  .brand { display:flex; align-items:center; gap:12px; }
-  .logo { height:50px; width:auto; }
-  .title { font-size:26px; font-weight:900; }
+  h1,
+  h2,
+  h3,
+  p {
+    margin: 0;
+  }
+
+  h2 {
+    font-size: 19px;
+    margin-bottom: 10px;
+    color: var(--navy);
+    letter-spacing: -0.02em;
+  }
+
+  h3 {
+    font-size: 15px;
+    color: var(--ink);
+    line-height: 1.25;
+  }
+
+  .page-section {
+    width: 100%;
+  }
+
+  .cover {
+    min-height: 244mm;
+    display: flex;
+    align-items: stretch;
+    page-break-after: always;
+    break-after: page;
+  }
+
+  .cover-shell {
+    width: 100%;
+    display: grid;
+    grid-template-columns: 18mm 1fr;
+    border: 1px solid var(--line);
+    border-radius: 22px;
+    overflow: hidden;
+    min-height: 226mm;
+  }
+
+  .cover-band {
+    background: linear-gradient(180deg, var(--navy), var(--purple));
+  }
+
+  .cover-main {
+    padding: 28mm 22mm 20mm;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    background:
+      radial-gradient(circle at top right, rgba(109, 40, 217, .12), transparent 38%),
+      linear-gradient(180deg, #ffffff 0%, #ffffff 70%, #f8fafc 100%);
+  }
+
+  .brand {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .brand-logo {
+    width: 54px;
+    height: 54px;
+    object-fit: contain;
+  }
+
+  .brand-title {
+    font-size: 28px;
+    line-height: 1;
+    font-weight: 900;
+    color: var(--navy);
+    letter-spacing: -0.04em;
+  }
+
+  .brand-subtitle {
+    margin-top: 4px;
+    color: var(--muted);
+    font-weight: 700;
+    font-size: 12px;
+  }
+
+  .cover-title {
+    margin-top: 28mm;
+  }
+
+  .cover-title h1 {
+    font-size: 34px;
+    line-height: 1.08;
+    color: var(--navy);
+    letter-spacing: -0.05em;
+    max-width: 130mm;
+  }
+
+  .cover-title p {
+    margin-top: 10px;
+    color: var(--muted);
+    font-size: 13px;
+    line-height: 1.55;
+    max-width: 128mm;
+  }
+
+  .cover-info {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+    margin-top: 20mm;
+  }
+
+  .info-card {
+    border: 1px solid var(--line);
+    background: rgba(255, 255, 255, .88);
+    border-radius: 16px;
+    padding: 12px;
+    min-height: 23mm;
+  }
+
+  .info-card.full {
+    grid-column: 1 / -1;
+  }
+
+  .info-label {
+    display: block;
+    color: var(--muted);
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: .08em;
+    font-weight: 900;
+    margin-bottom: 5px;
+  }
+
+  .info-value {
+    color: var(--ink);
+    font-size: 13px;
+    font-weight: 800;
+    line-height: 1.35;
+  }
+
+  .cover-footer {
+    color: var(--muted);
+    font-size: 11px;
+    line-height: 1.45;
+  }
+
+  .summary-layout {
+    display: grid;
+    grid-template-columns: 52mm 1fr;
+    gap: 12px;
+    align-items: stretch;
+  }
 
   .card {
-    border:1px solid var(--line);
-    border-radius:14px;
-    padding:14px;
-    margin: 0 0 12px 0;
-    background:#fff;
-    break-inside: avoid;
-    page-break-inside: avoid;
+    border: 1px solid var(--line);
+    background: #ffffff;
+    border-radius: 16px;
+    padding: 14px;
+    margin-bottom: 12px;
+    box-shadow: 0 8px 24px rgba(15, 23, 42, .04);
   }
 
-  table { width:100%; border-collapse:collapse; margin-top:10px; }
-  th,td { padding:8px; border-bottom:1px solid var(--line); font-size:12px; vertical-align:top; }
-  th { text-align:left; background: var(--soft); color: var(--muted); }
-  .cell-title { max-width: 70mm; word-break: break-word; overflow-wrap:anywhere; }
-
-  .taskGrid { display:grid; grid-template-columns: 1fr 140px; gap: 12px; align-items: start; }
-  .taskInfo { min-width: 0; }
-  .taskChart {
-    width: 140px;
-    min-height: 44mm;
-    display:flex;
-    justify-content:center;
-    align-items:flex-start;
-    padding-top: 2mm;
-    box-sizing:border-box;
+  .score-card {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background:
+      radial-gradient(circle at top, rgba(109, 40, 217, .10), transparent 45%),
+      #ffffff;
   }
 
-  .task-title {
-    font-weight:900;
-    font-size:13px;
-    margin-bottom:2px;
-    display: -webkit-box;
-    -webkit-line-clamp: 3;
-    -webkit-box-orient: vertical;
+  .kpi-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 8px;
+  }
+
+  .kpi {
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    padding: 10px;
+    background: var(--soft);
+  }
+
+  .kpi span {
+    display: block;
+    color: var(--muted);
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: .06em;
+    font-weight: 900;
+    margin-bottom: 5px;
+  }
+
+  .kpi strong {
+    display: block;
+    font-size: 20px;
+    color: var(--navy);
+    line-height: 1;
+  }
+
+  .competence-legend {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 7px;
+    margin-top: 12px;
+  }
+
+  .legend-pill {
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    padding: 7px 8px;
+    background: #ffffff;
+    font-size: 10px;
+    color: var(--muted);
+    font-weight: 800;
+    white-space: nowrap;
+  }
+
+  .legend-pill i {
+    display: inline-block;
+    width: 9px;
+    height: 9px;
+    border-radius: 3px;
+    margin-right: 5px;
+    vertical-align: -1px;
+  }
+
+  .c1-dot { background: var(--c1); }
+  .c2-dot { background: var(--c2); }
+  .c3-dot { background: var(--c3); }
+  .c4-dot { background: var(--c4); }
+  .c5-dot { background: var(--c5); }
+
+  .summary-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 4px;
     overflow: hidden;
+    border-radius: 14px;
   }
 
-  .essayBox { margin-top:10px; padding:14px; border:1px solid var(--line); border-radius:12px; background:var(--soft); }
-  .essayHeader { font-weight: 900; margin-bottom: 8px; font-size: 12px; }
+  .summary-table th {
+    text-align: left;
+    background: var(--navy);
+    color: #ffffff;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: .06em;
+    padding: 9px 8px;
+  }
 
-  .essayContent {
+  .summary-table td {
+    border-bottom: 1px solid var(--line);
+    padding: 9px 8px;
+    font-size: 11.5px;
+    vertical-align: middle;
+  }
+
+  .summary-table tr:nth-child(even) td {
+    background: var(--soft);
+  }
+
+  .summary-index {
+    width: 10mm;
+    color: var(--muted);
+    font-weight: 900;
+  }
+
+  .summary-title {
+    max-width: 72mm;
+    font-weight: 800;
+    color: var(--ink);
+    overflow-wrap: anywhere;
+  }
+
+  .summary-score {
+    text-align: right;
+    font-weight: 900;
+    color: var(--navy);
+  }
+
+  .status-pill {
+    display: inline-block;
+    border-radius: 999px;
+    padding: 4px 8px;
+    font-size: 9.5px;
+    font-weight: 900;
+    white-space: nowrap;
+  }
+
+  .status-pill.done {
+    color: #166534;
+    background: #dcfce7;
+    border: 1px solid #bbf7d0;
+  }
+
+  .status-pill.pending {
+    color: #92400e;
+    background: #fef3c7;
+    border: 1px solid #fde68a;
+  }
+
+  .details-title {
+    page-break-before: always;
+    break-before: page;
+  }
+
+  .essay-card {
+    border: 1px solid var(--line);
+    border-radius: 18px;
+    background: #ffffff;
+    margin-bottom: 14px;
+    overflow: hidden;
+    page-break-inside: auto;
+    break-inside: auto;
+  }
+
+  .essay-top {
+    display: grid;
+    grid-template-columns: 1fr 36mm;
+    gap: 12px;
+    padding: 14px;
+    background:
+      linear-gradient(90deg, rgba(11, 31, 75, .06), rgba(109, 40, 217, .06));
+    border-bottom: 1px solid var(--line);
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }
+
+  .essay-number {
+    display: inline-block;
+    margin-bottom: 6px;
+    border-radius: 999px;
+    padding: 4px 9px;
+    color: var(--purple);
+    background: rgba(109, 40, 217, .10);
+    border: 1px solid rgba(109, 40, 217, .18);
+    font-size: 10px;
+    font-weight: 900;
+    text-transform: uppercase;
+    letter-spacing: .06em;
+  }
+
+  .essay-title-area h3 {
+    font-size: 17px;
+    color: var(--navy);
+    margin-bottom: 5px;
+    overflow-wrap: anywhere;
+  }
+
+  .essay-title-area p {
+    color: var(--muted);
+    font-size: 11px;
+  }
+
+  .essay-score-area {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .competence-grid {
+    display: grid;
+    grid-template-columns: repeat(6, 1fr);
+    gap: 7px;
+    padding: 12px 14px;
+    background: #ffffff;
+    border-bottom: 1px solid var(--line);
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }
+
+  .competence {
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 8px;
+    min-height: 16mm;
+    background: var(--soft);
+  }
+
+  .competence span {
+    display: block;
+    font-size: 9.5px;
+    text-transform: uppercase;
+    letter-spacing: .06em;
+    font-weight: 900;
+    color: var(--muted);
+    margin-bottom: 4px;
+  }
+
+  .competence strong {
+    display: block;
+    font-size: 14px;
+    color: var(--ink);
+  }
+
+  .competence.c1 { border-top: 3px solid var(--c1); }
+  .competence.c2 { border-top: 3px solid var(--c2); }
+  .competence.c3 { border-top: 3px solid var(--c3); }
+  .competence.c4 { border-top: 3px solid var(--c4); }
+  .competence.c5 { border-top: 3px solid var(--c5); }
+
+  .competence.total {
+    border-top: 3px solid var(--navy);
+    background: #f8fafc;
+  }
+
+  .essay-text-box {
+    padding: 14px;
+    background: #ffffff;
+  }
+
+  .essay-text-head {
+    display: inline-block;
+    color: var(--navy);
+    font-weight: 900;
+    font-size: 12px;
+    margin-bottom: 8px;
+  }
+
+  .essay-content {
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    background: var(--soft);
+    padding: 13px 14px;
     white-space: pre-wrap;
-    line-height: 1.7;
+    line-height: 1.72;
     text-align: justify;
     overflow-wrap: anywhere;
     word-break: break-word;
     hyphens: auto;
-    break-inside: auto;
+    font-size: 12.2px;
     page-break-inside: auto;
+    break-inside: auto;
   }
 
-  .kpiRow{ display:flex; gap:8px; flex-wrap:wrap; margin-top:10px; }
-  .kpi{ border:1px solid var(--line); border-radius:999px; padding:6px 10px; font-size:12px; background:#fff; color: var(--muted); }
-  .kpi b{ color: var(--ink); }
+  .empty-chart {
+    width: 38mm;
+    height: 38mm;
+    border-radius: 999px;
+    border: 1px dashed var(--line);
+    background: var(--soft);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--muted);
+    font-size: 10px;
+    font-weight: 900;
+    text-align: center;
+    padding: 8px;
+  }
 
-  .pageBreakBefore { page-break-before: always; break-before: page; }
+  .empty-chart.small {
+    width: 31mm;
+    height: 31mm;
+  }
+
+  .empty-state {
+    border: 1px dashed var(--line);
+    border-radius: 16px;
+    padding: 18px;
+    color: var(--muted);
+    background: var(--soft);
+  }
+
+  .mini-donut-svg,
+  .donut-svg {
+    display: block;
+  }
 </style>
 </head>
-<body>
 
-<section class="section cover">
-  <div class="coverWrap">
-    <div class="coverInner">
-      <div class="brand">
-        ${logoDataUrl ? `<img src="${logoDataUrl}" class="logo" alt="Mestre Kira"/>` : ``}
+<body>
+  <section class="page-section cover">
+    <div class="cover-shell">
+      <div class="cover-band"></div>
+
+      <div class="cover-main">
         <div>
-          <div class="title">Mestre Kira</div>
-          <div class="muted">Relatório de desempenho</div>
+          <div class="brand">
+            ${logoDataUrl ? `<img src="${escapeAttr(logoDataUrl)}" class="brand-logo" alt="Mestre Kira"/>` : ''}
+            <div>
+              <div class="brand-title">Mestre Kira</div>
+              <div class="brand-subtitle">Plataforma de Redação</div>
+            </div>
+          </div>
+
+          <div class="cover-title">
+            <h1>Relatório de desempenho em redação</h1>
+            <p>
+              Síntese das redações enviadas, médias por competência e histórico de desempenho do estudante.
+            </p>
+          </div>
+
+          <div class="cover-info">
+            <div class="info-card full">
+              <span class="info-label">Estudante</span>
+              <div class="info-value">${safeStudent}</div>
+            </div>
+
+            <div class="info-card">
+              <span class="info-label">Sala</span>
+              <div class="info-value">${safeRoom}</div>
+            </div>
+
+            <div class="info-card">
+              <span class="info-label">Gerado em</span>
+              <div class="info-value">${escapeHtml(generatedAt)}</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="cover-footer">
+          Este relatório reúne apenas redações registradas na plataforma e considera, nas médias,
+          as produções que já possuem correção lançada.
         </div>
       </div>
+    </div>
+  </section>
 
-      <div style="margin-top:18px;">
-        <p><strong>Estudante:</strong> ${safeStudent}</p>
-        <p><strong>Sala:</strong> ${safeRoom}</p>
-        <p><strong>Gerado em:</strong> ${escapeHtml(formatDateBR(new Date(), timeZone))}</p>
+  <section class="page-section">
+    <h2>Resumo geral</h2>
+
+    <div class="summary-layout">
+      <div class="card score-card">
+        ${avgDonut}
+      </div>
+
+      <div class="card">
+        <div class="kpi-grid">
+          <div class="kpi"><span>Média geral</span><strong>${averages.total ?? '—'}</strong></div>
+          <div class="kpi"><span>Redações</span><strong>${totalEssays}</strong></div>
+          <div class="kpi"><span>Corrigidas</span><strong>${correctedCount}</strong></div>
+          <div class="kpi"><span>Aguardando</span><strong>${pendingCount}</strong></div>
+          <div class="kpi"><span>Sala</span><strong style="font-size:14px; line-height:1.2;">${safeRoom}</strong></div>
+          <div class="kpi"><span>Escala</span><strong>1000</strong></div>
+        </div>
+
+        <div class="competence-legend">
+          <div class="legend-pill"><i class="c1-dot"></i>C1: ${averages.c1 ?? '—'}</div>
+          <div class="legend-pill"><i class="c2-dot"></i>C2: ${averages.c2 ?? '—'}</div>
+          <div class="legend-pill"><i class="c3-dot"></i>C3: ${averages.c3 ?? '—'}</div>
+          <div class="legend-pill"><i class="c4-dot"></i>C4: ${averages.c4 ?? '—'}</div>
+          <div class="legend-pill"><i class="c5-dot"></i>C5: ${averages.c5 ?? '—'}</div>
+        </div>
       </div>
     </div>
-  </div>
-</section>
 
-<section class="section">
-  <h2>Resumo Geral</h2>
+    <div class="card">
+      <h2 style="font-size:17px; margin-bottom:8px;">Sumário das redações</h2>
 
-  <div class="card">
-    ${
-      averages.total != null
-        ? donutSvg({
-            c1: averages.c1 ?? 0,
-            c2: averages.c2 ?? 0,
-            c3: averages.c3 ?? 0,
-            c4: averages.c4 ?? 0,
-            c5: averages.c5 ?? 0,
-            totalText: String(averages.total),
-            size: 120,
-            hole: 38,
-          })
-        : `<div class="muted">Sem correções ainda.</div>`
-    }
-
-    <div class="kpiRow">
-      <span class="kpi"><b>C1</b>: ${averages.c1 ?? '—'}</span>
-      <span class="kpi"><b>C2</b>: ${averages.c2 ?? '—'}</span>
-      <span class="kpi"><b>C3</b>: ${averages.c3 ?? '—'}</span>
-      <span class="kpi"><b>C4</b>: ${averages.c4 ?? '—'}</span>
-      <span class="kpi"><b>C5</b>: ${averages.c5 ?? '—'}</span>
+      <table class="summary-table">
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>Tarefa</th>
+            <th>Data</th>
+            <th>Status</th>
+            <th style="text-align:right;">Nota</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${
+            summaryRows ||
+            `<tr><td colspan="5" class="empty-state">Nenhuma redação encontrada.</td></tr>`
+          }
+        </tbody>
+      </table>
     </div>
-  </div>
 
-  <div class="card">
-    <h3>Sumário</h3>
-    <table>
-      <thead>
-        <tr><th>Tarefa</th><th>Data</th><th style="text-align:right;">Nota</th></tr>
-      </thead>
-      <tbody>
-        ${summaryRows || `<tr><td colspan="3">Nenhuma redação encontrada.</td></tr>`}
-      </tbody>
-    </table>
-  </div>
-
-  <div class="pageBreakBefore"></div>
-  <h2>Detalhes por tarefa</h2>
-  ${details}
-</section>
-
+    <h2 class="details-title">Detalhes por tarefa</h2>
+    ${
+      details ||
+      `<div class="empty-state">Nenhuma redação foi encontrada para este estudante nesta sala.</div>`
+    }
+  </section>
 </body>
 </html>
 `;
 
-    // ✅ fallback: alguns ambientes retornam null (dev/local)
     const execPath =
       (await chromium.executablePath()) ||
       String(process.env.CHROME_EXECUTABLE_PATH || '').trim() ||
@@ -447,38 +1034,34 @@ export class PdfService {
       const page = await browser.newPage();
       await page.setBypassCSP(true);
 
-      // ✅ mais resiliente
       try {
         await page.setContent(html, { waitUntil: 'networkidle0' });
       } catch {
         await page.setContent(html, { waitUntil: 'domcontentloaded' });
       }
 
-      const headerRoom = safeRoom;
-      const headerStudent = safeStudent;
-
       const headerTemplate = `
-        <div style="width:100%; box-sizing:border-box; padding:0 ${marginLR}; height:${HEADER_MM}mm; display:flex; align-items:center; justify-content:space-between; border-bottom:1px solid rgba(15,23,42,0.10);">
+        <div style="width:100%; box-sizing:border-box; padding:0 ${marginLR}; height:${HEADER_MM}mm; display:flex; align-items:center; justify-content:space-between; border-bottom:1px solid rgba(15,23,42,0.10); font-family:Arial, Helvetica, sans-serif;">
           <div style="display:flex; align-items:center; gap:8px; min-width:0;">
             ${
               logoDataUrl
-                ? `<img src="${logoDataUrl}" style="height:12px; width:auto; display:block;" />`
+                ? `<img src="${escapeAttr(logoDataUrl)}" style="height:13px; width:auto; display:block;" />`
                 : ``
             }
-            <span style="color:#475569; font-weight:800; font-size:10px; white-space:nowrap;">Mestre Kira</span>
+            <span style="color:#0b1f4b; font-weight:900; font-size:10px; white-space:nowrap;">Mestre Kira</span>
             <span style="color:#94a3b8; font-size:10px;">•</span>
-            <span style="color:#64748b; font-size:10px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:260px;">
-              ${headerRoom}
+            <span style="color:#64748b; font-size:10px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:250px;">
+              ${safeRoom}
             </span>
           </div>
-          <span style="color:#64748b; font-size:10px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:260px;">
-            Estudante: ${headerStudent}
+          <span style="color:#64748b; font-size:10px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:270px;">
+            ${safeStudent}
           </span>
         </div>
       `;
 
       const footerTemplate = `
-        <div style="width:100%; box-sizing:border-box; padding:0 ${marginLR}; height:${FOOTER_MM}mm; display:flex; align-items:center; justify-content:space-between; border-top:1px solid rgba(15,23,42,0.10);">
+        <div style="width:100%; box-sizing:border-box; padding:0 ${marginLR}; height:${FOOTER_MM}mm; display:flex; align-items:center; justify-content:space-between; border-top:1px solid rgba(15,23,42,0.10); font-family:Arial, Helvetica, sans-serif;">
           <span style="color:#64748b; font-size:9px;">© 2026 Mestre Kira. Todos os direitos reservados.</span>
           <span style="color:#64748b; font-size:9px;">
             Página <span class="pageNumber"></span> de <span class="totalPages"></span>
