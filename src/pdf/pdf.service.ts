@@ -48,6 +48,7 @@ function escapeAttr(s: any) {
 
 function formatDateBR(value: any, tz?: string) {
   if (!value) return '—';
+
   const d = value instanceof Date ? value : new Date(value);
   if (Number.isNaN(d.getTime())) return '—';
 
@@ -92,8 +93,8 @@ function donutSvg({
   c5,
   totalText,
   totalValue,
-  size = 128,
-  thickness = 18,
+  size = 120,
+  thickness = 17,
 }: {
   c1: number;
   c2: number;
@@ -118,16 +119,22 @@ function donutSvg({
 
   const score =
     totalValue === null || totalValue === undefined
-      ? clamp0to1000(Number(c1 || 0) + Number(c2 || 0) + Number(c3 || 0) + Number(c4 || 0) + Number(c5 || 0))
+      ? clamp0to1000(
+          Number(c1 || 0) +
+            Number(c2 || 0) +
+            Number(c3 || 0) +
+            Number(c4 || 0) +
+            Number(c5 || 0),
+        )
       : clamp0to1000(totalValue);
 
   const values = [
-    { key: 'c1', value: clamp0to200(c1), color: colors.c1 },
-    { key: 'c2', value: clamp0to200(c2), color: colors.c2 },
-    { key: 'c3', value: clamp0to200(c3), color: colors.c3 },
-    { key: 'c4', value: clamp0to200(c4), color: colors.c4 },
-    { key: 'c5', value: clamp0to200(c5), color: colors.c5 },
-    { key: 'margin', value: Math.max(0, 1000 - score), color: colors.margin, margin: true },
+    { value: clamp0to200(c1), color: colors.c1 },
+    { value: clamp0to200(c2), color: colors.c2 },
+    { value: clamp0to200(c3), color: colors.c3 },
+    { value: clamp0to200(c4), color: colors.c4 },
+    { value: clamp0to200(c5), color: colors.c5 },
+    { value: Math.max(0, 1000 - score), color: colors.margin },
   ];
 
   const r = (size - thickness) / 2;
@@ -140,25 +147,19 @@ function donutSvg({
   const circles = values
     .map((seg) => {
       const len = Math.max(0, (seg.value / 1000) * C);
-      const dash = `${len} ${C - len}`;
-      const stroke = seg.color;
-      const extra = seg.margin ? `class="margin-segment"` : '';
-
       const out = `
         <circle
-          ${extra}
           cx="${cx}"
           cy="${cy}"
           r="${r}"
           fill="none"
-          stroke="${stroke}"
+          stroke="${seg.color}"
           stroke-width="${thickness}"
-          stroke-dasharray="${dash}"
+          stroke-dasharray="${len} ${C - len}"
           stroke-dashoffset="${-offset}"
           transform="rotate(-90 ${cx} ${cy})"
         />
       `;
-
       offset += len;
       return out;
     })
@@ -170,58 +171,11 @@ function donutSvg({
       ${circles}
       <circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="${colors.border}" stroke-width="1" />
       <circle cx="${cx}" cy="${cy}" r="${Math.max(1, r - thickness / 2 - 3)}" fill="#ffffff" />
-      <text x="${cx}" y="${cy - 2}" text-anchor="middle" font-size="20" font-weight="900" fill="#0f172a">
+      <text x="${cx}" y="${cy - 2}" text-anchor="middle" font-size="19" font-weight="900" fill="#0f172a">
         ${escapeHtml(totalText)}
       </text>
-      <text x="${cx}" y="${cy + 15}" text-anchor="middle" font-size="8.5" font-weight="700" fill="#64748b">
+      <text x="${cx}" y="${cy + 15}" text-anchor="middle" font-size="8" font-weight="700" fill="#64748b">
         pontos
-      </text>
-    </svg>
-  `;
-}
-
-function miniDonutSvg(score: number | null, size = 66, thickness = 9) {
-  const safeScore = score === null || score === undefined ? null : clamp0to1000(score);
-  const value = safeScore ?? 0;
-  const margin = safeScore === null ? 1000 : Math.max(0, 1000 - safeScore);
-
-  const r = (size - thickness) / 2;
-  const cx = size / 2;
-  const cy = size / 2;
-  const C = 2 * Math.PI * r;
-
-  const lenValue = (value / 1000) * C;
-  const lenMargin = (margin / 1000) * C;
-
-  return `
-    <svg class="mini-donut-svg" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}" aria-hidden="true">
-      <circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="#e5e7eb" stroke-width="${thickness}" />
-      <circle
-        cx="${cx}"
-        cy="${cy}"
-        r="${r}"
-        fill="none"
-        stroke="#4f46e5"
-        stroke-width="${thickness}"
-        stroke-dasharray="${lenValue} ${C - lenValue}"
-        stroke-dashoffset="0"
-        transform="rotate(-90 ${cx} ${cy})"
-      />
-      <circle
-        cx="${cx}"
-        cy="${cy}"
-        r="${r}"
-        fill="none"
-        stroke="#ffffff"
-        stroke-width="${thickness}"
-        stroke-dasharray="${lenMargin} ${C - lenMargin}"
-        stroke-dashoffset="${-lenValue}"
-        transform="rotate(-90 ${cx} ${cy})"
-      />
-      <circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="rgba(15,23,42,0.15)" stroke-width="1" />
-      <circle cx="${cx}" cy="${cy}" r="${Math.max(1, r - thickness / 2 - 2)}" fill="#ffffff" />
-      <text x="${cx}" y="${cy + 4}" text-anchor="middle" font-size="11" font-weight="900" fill="#0f172a">
-        ${safeScore === null ? '—' : String(safeScore)}
       </text>
     </svg>
   `;
@@ -298,8 +252,8 @@ export class PdfService {
             c5: averages.c5 ?? 0,
             totalText: String(averages.total),
             totalValue: averages.total,
-            size: 142,
-            thickness: 20,
+            size: 128,
+            thickness: 18,
           })
         : `<div class="empty-chart">Sem correções</div>`;
 
@@ -308,7 +262,6 @@ export class PdfService {
         const title = e.taskTitle || tasksMap.get(String(e.taskId)) || 'Tarefa';
         const dt = formatDateBR(e.createdAt ?? e.updatedAt, timeZone);
         const score = e.score ?? null;
-        const status = statusLabel(score);
 
         return `
           <tr>
@@ -316,7 +269,7 @@ export class PdfService {
             <td class="summary-title">${escapeHtml(title)}</td>
             <td>${escapeHtml(dt)}</td>
             <td>
-              <span class="status-pill ${score == null ? 'pending' : 'done'}">${escapeHtml(status)}</span>
+              <span class="status-pill ${score == null ? 'pending' : 'done'}">${escapeHtml(statusLabel(score))}</span>
             </td>
             <td class="summary-score">${escapeHtml(scoreText(score))}</td>
           </tr>
@@ -348,21 +301,21 @@ export class PdfService {
                 c5,
                 totalText: String(score),
                 totalValue: Number(score),
-                size: 118,
-                thickness: 17,
+                size: 104,
+                thickness: 15,
               })
             : `<div class="empty-chart small">Sem correção</div>`;
 
         return `
           <article class="essay-card">
-            <div class="essay-top">
-              <div class="essay-title-area">
+            <div class="essay-head">
+              <div class="essay-meta">
                 <div class="essay-number">Redação ${idx + 1}</div>
                 <h3>${escapeHtml(title)}</h3>
                 <p>Enviada em: <strong>${escapeHtml(sentAt)}</strong></p>
               </div>
 
-              <div class="essay-score-area">
+              <div class="essay-chart-box">
                 ${chart}
               </div>
             </div>
@@ -389,8 +342,8 @@ export class PdfService {
     const FOOTER_MM = Number(process.env.PDF_FOOTER_MM || 12);
     const LR_MM = Number(process.env.PDF_MARGIN_LR_MM || 16);
 
-    const marginTop = `${Math.max(Number(process.env.PDF_MARGIN_TOP_MM || 24), HEADER_MM + 8)}mm`;
-    const marginBottom = `${Math.max(Number(process.env.PDF_MARGIN_BOTTOM_MM || 20), FOOTER_MM + 8)}mm`;
+    const marginTop = `${Math.max(Number(process.env.PDF_MARGIN_TOP_MM || 30), HEADER_MM + 16)}mm`;
+    const marginBottom = `${Math.max(Number(process.env.PDF_MARGIN_BOTTOM_MM || 24), FOOTER_MM + 12)}mm`;
     const marginLR = `${Math.max(LR_MM, 14)}mm`;
 
     const html = `
@@ -404,11 +357,9 @@ export class PdfService {
     --ink: #0f172a;
     --muted: #64748b;
     --soft: #f8fafc;
-    --soft-2: #f1f5f9;
     --line: #e2e8f0;
     --navy: #0b1f4b;
     --purple: #6d28d9;
-    --cream: #f6f2e8;
     --c1: #4f46e5;
     --c2: #16a34a;
     --c3: #f59e0b;
@@ -418,7 +369,6 @@ export class PdfService {
 
   @page {
     size: A4;
-    margin: 0;
   }
 
   * {
@@ -463,47 +413,56 @@ export class PdfService {
   }
 
   .cover {
-    min-height: 244mm;
-    display: flex;
-    align-items: stretch;
+    min-height: 224mm;
     page-break-after: always;
     break-after: page;
   }
 
   .cover-shell {
     width: 100%;
-    display: grid;
-    grid-template-columns: 18mm 1fr;
+    min-height: 210mm;
     border: 1px solid var(--line);
-    border-radius: 22px;
+    border-radius: 20px;
     overflow: hidden;
-    min-height: 226mm;
+    display: table;
+    table-layout: fixed;
   }
 
   .cover-band {
+    display: table-cell;
+    width: 18mm;
     background: linear-gradient(180deg, var(--navy), var(--purple));
   }
 
   .cover-main {
-    padding: 28mm 22mm 20mm;
-    display: flex;
-    flex-direction: column;
-    justify-content: space-between;
-    background:
-      radial-gradient(circle at top right, rgba(109, 40, 217, .12), transparent 38%),
-      linear-gradient(180deg, #ffffff 0%, #ffffff 70%, #f8fafc 100%);
+    display: table-cell;
+    vertical-align: top;
+    padding: 24mm 20mm 18mm;
+    background: #ffffff;
   }
 
   .brand {
-    display: flex;
-    align-items: center;
-    gap: 12px;
+    display: table;
+    table-layout: fixed;
+    width: 100%;
+  }
+
+  .brand-logo-wrap {
+    display: table-cell;
+    width: 18mm;
+    vertical-align: middle;
   }
 
   .brand-logo {
-    width: 54px;
-    height: 54px;
+    width: 14mm;
+    height: 14mm;
     object-fit: contain;
+    display: block;
+  }
+
+  .brand-text {
+    display: table-cell;
+    vertical-align: middle;
   }
 
   .brand-title {
@@ -522,15 +481,15 @@ export class PdfService {
   }
 
   .cover-title {
-    margin-top: 28mm;
+    margin-top: 26mm;
+    max-width: 130mm;
   }
 
   .cover-title h1 {
-    font-size: 34px;
+    font-size: 33px;
     line-height: 1.08;
     color: var(--navy);
     letter-spacing: -0.05em;
-    max-width: 130mm;
   }
 
   .cover-title p {
@@ -538,26 +497,36 @@ export class PdfService {
     color: var(--muted);
     font-size: 13px;
     line-height: 1.55;
-    max-width: 128mm;
   }
 
   .cover-info {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 10px;
     margin-top: 20mm;
+    display: table;
+    table-layout: fixed;
+    width: 100%;
+    border-spacing: 8px;
+  }
+
+  .cover-info-row {
+    display: table-row;
   }
 
   .info-card {
+    display: table-cell;
     border: 1px solid var(--line);
-    background: rgba(255, 255, 255, .88);
     border-radius: 16px;
     padding: 12px;
-    min-height: 23mm;
+    background: var(--soft);
+    vertical-align: top;
   }
 
-  .info-card.full {
-    grid-column: 1 / -1;
+  .info-card-full {
+    display: block;
+    border: 1px solid var(--line);
+    border-radius: 16px;
+    padding: 12px;
+    background: var(--soft);
+    margin-bottom: 8px;
   }
 
   .info-label {
@@ -578,16 +547,30 @@ export class PdfService {
   }
 
   .cover-footer {
+    margin-top: 28mm;
     color: var(--muted);
     font-size: 11px;
     line-height: 1.45;
   }
 
   .summary-layout {
-    display: grid;
-    grid-template-columns: 52mm 1fr;
-    gap: 12px;
-    align-items: stretch;
+    display: table;
+    table-layout: fixed;
+    width: 100%;
+    border-spacing: 0;
+    margin-bottom: 12px;
+  }
+
+  .summary-chart-cell {
+    display: table-cell;
+    width: 60mm;
+    vertical-align: top;
+    padding-right: 12px;
+  }
+
+  .summary-kpi-cell {
+    display: table-cell;
+    vertical-align: top;
   }
 
   .card {
@@ -596,29 +579,47 @@ export class PdfService {
     border-radius: 16px;
     padding: 14px;
     margin-bottom: 12px;
-    box-shadow: 0 8px 24px rgba(15, 23, 42, .04);
+    overflow: hidden;
   }
 
   .score-card {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    background:
-      radial-gradient(circle at top, rgba(109, 40, 217, .10), transparent 45%),
-      #ffffff;
+    width: 58mm;
+    height: 58mm;
+    min-height: 58mm;
+    max-height: 58mm;
+    display: table;
+    table-layout: fixed;
+    overflow: hidden;
+    background: #ffffff;
+  }
+
+  .score-card-inner {
+    display: table-cell;
+    width: 58mm;
+    height: 58mm;
+    vertical-align: middle;
+    text-align: center;
   }
 
   .kpi-grid {
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 8px;
+    display: table;
+    table-layout: fixed;
+    width: 100%;
+    border-spacing: 7px;
+  }
+
+  .kpi-row {
+    display: table-row;
   }
 
   .kpi {
+    display: table-cell;
+    width: 33.333%;
     border: 1px solid var(--line);
     border-radius: 14px;
     padding: 10px;
     background: var(--soft);
+    vertical-align: top;
   }
 
   .kpi span {
@@ -633,19 +634,21 @@ export class PdfService {
 
   .kpi strong {
     display: block;
-    font-size: 20px;
+    font-size: 19px;
     color: var(--navy);
-    line-height: 1;
+    line-height: 1.05;
   }
 
   .competence-legend {
-    display: grid;
-    grid-template-columns: repeat(5, 1fr);
-    gap: 7px;
-    margin-top: 12px;
+    display: table;
+    table-layout: fixed;
+    width: 100%;
+    border-spacing: 5px;
+    margin-top: 8px;
   }
 
   .legend-pill {
+    display: table-cell;
     border: 1px solid var(--line);
     border-radius: 999px;
     padding: 7px 8px;
@@ -654,6 +657,7 @@ export class PdfService {
     color: var(--muted);
     font-weight: 800;
     white-space: nowrap;
+    text-align: center;
   }
 
   .legend-pill i {
@@ -661,7 +665,7 @@ export class PdfService {
     width: 9px;
     height: 9px;
     border-radius: 3px;
-    margin-right: 5px;
+    margin-right: 4px;
     vertical-align: -1px;
   }
 
@@ -674,9 +678,8 @@ export class PdfService {
   .summary-table {
     width: 100%;
     border-collapse: collapse;
+    table-layout: fixed;
     margin-top: 4px;
-    overflow: hidden;
-    border-radius: 14px;
   }
 
   .summary-table th {
@@ -694,6 +697,7 @@ export class PdfService {
     padding: 9px 8px;
     font-size: 11.5px;
     vertical-align: middle;
+    overflow-wrap: anywhere;
   }
 
   .summary-table tr:nth-child(even) td {
@@ -707,10 +711,9 @@ export class PdfService {
   }
 
   .summary-title {
-    max-width: 72mm;
+    width: 66mm;
     font-weight: 800;
     color: var(--ink);
-    overflow-wrap: anywhere;
   }
 
   .summary-score {
@@ -755,16 +758,37 @@ export class PdfService {
     break-inside: auto;
   }
 
-  .essay-top {
-    display: grid;
-    grid-template-columns: 1fr 36mm;
-    gap: 12px;
-    padding: 14px;
-    background:
-      linear-gradient(90deg, rgba(11, 31, 75, .06), rgba(109, 40, 217, .06));
+  .essay-head {
+    display: table;
+    table-layout: fixed;
+    width: 100%;
+    min-height: 40mm;
+    background: #f8fafc;
     border-bottom: 1px solid var(--line);
     page-break-inside: avoid;
     break-inside: avoid;
+  }
+
+  .essay-meta {
+    display: table-cell;
+    vertical-align: top;
+    padding: 14px;
+    min-width: 0;
+    overflow: hidden;
+  }
+
+  .essay-chart-box {
+    display: table-cell;
+    width: 38mm;
+    height: 38mm;
+    min-width: 38mm;
+    max-width: 38mm;
+    min-height: 38mm;
+    max-height: 38mm;
+    padding: 8px;
+    vertical-align: middle;
+    text-align: center;
+    overflow: hidden;
   }
 
   .essay-number {
@@ -781,29 +805,26 @@ export class PdfService {
     letter-spacing: .06em;
   }
 
-  .essay-title-area h3 {
+  .essay-meta h3 {
+    max-width: 100%;
     font-size: 17px;
     color: var(--navy);
     margin-bottom: 5px;
     overflow-wrap: anywhere;
+    word-break: break-word;
   }
 
-  .essay-title-area p {
+  .essay-meta p {
     color: var(--muted);
     font-size: 11px;
   }
 
-  .essay-score-area {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-  }
-
   .competence-grid {
-    display: grid;
-    grid-template-columns: repeat(6, 1fr);
-    gap: 7px;
-    padding: 12px 14px;
+    display: table;
+    table-layout: fixed;
+    width: 100%;
+    border-spacing: 7px;
+    padding: 5px 7px;
     background: #ffffff;
     border-bottom: 1px solid var(--line);
     page-break-inside: avoid;
@@ -811,11 +832,14 @@ export class PdfService {
   }
 
   .competence {
+    display: table-cell;
+    width: 16.666%;
     border: 1px solid var(--line);
     border-radius: 12px;
     padding: 8px;
     min-height: 16mm;
     background: var(--soft);
+    vertical-align: top;
   }
 
   .competence span {
@@ -830,8 +854,9 @@ export class PdfService {
 
   .competence strong {
     display: block;
-    font-size: 14px;
+    font-size: 13px;
     color: var(--ink);
+    white-space: nowrap;
   }
 
   .competence.c1 { border-top: 3px solid var(--c1); }
@@ -875,12 +900,12 @@ export class PdfService {
   }
 
   .empty-chart {
-    width: 38mm;
-    height: 38mm;
+    width: 34mm;
+    height: 34mm;
     border-radius: 999px;
     border: 1px dashed var(--line);
     background: var(--soft);
-    display: flex;
+    display: inline-flex;
     align-items: center;
     justify-content: center;
     color: var(--muted);
@@ -891,8 +916,8 @@ export class PdfService {
   }
 
   .empty-chart.small {
-    width: 31mm;
-    height: 31mm;
+    width: 28mm;
+    height: 28mm;
   }
 
   .empty-state {
@@ -903,9 +928,27 @@ export class PdfService {
     background: var(--soft);
   }
 
-  .mini-donut-svg,
   .donut-svg {
     display: block;
+    width: 100%;
+    height: auto;
+    max-width: 100%;
+    flex: 0 0 auto;
+    margin: 0 auto;
+  }
+
+  .score-card .donut-svg {
+    width: 46mm;
+    max-width: 46mm;
+  }
+
+  .essay-chart-box .donut-svg {
+    width: 30mm;
+    max-width: 30mm;
+  }
+
+  svg text {
+    dominant-baseline: auto;
   }
 </style>
 </head>
@@ -916,28 +959,30 @@ export class PdfService {
       <div class="cover-band"></div>
 
       <div class="cover-main">
-        <div>
-          <div class="brand">
+        <div class="brand">
+          <div class="brand-logo-wrap">
             ${logoDataUrl ? `<img src="${escapeAttr(logoDataUrl)}" class="brand-logo" alt="Mestre Kira"/>` : ''}
-            <div>
-              <div class="brand-title">Mestre Kira</div>
-              <div class="brand-subtitle">Plataforma de Redação</div>
-            </div>
+          </div>
+          <div class="brand-text">
+            <div class="brand-title">Mestre Kira</div>
+            <div class="brand-subtitle">Plataforma de Redação</div>
+          </div>
+        </div>
+
+        <div class="cover-title">
+          <h1>Relatório de desempenho em redação</h1>
+          <p>
+            Síntese das redações enviadas, médias por competência e histórico de desempenho do estudante.
+          </p>
+        </div>
+
+        <div class="cover-info">
+          <div class="info-card-full">
+            <span class="info-label">Estudante</span>
+            <div class="info-value">${safeStudent}</div>
           </div>
 
-          <div class="cover-title">
-            <h1>Relatório de desempenho em redação</h1>
-            <p>
-              Síntese das redações enviadas, médias por competência e histórico de desempenho do estudante.
-            </p>
-          </div>
-
-          <div class="cover-info">
-            <div class="info-card full">
-              <span class="info-label">Estudante</span>
-              <div class="info-value">${safeStudent}</div>
-            </div>
-
+          <div class="cover-info-row">
             <div class="info-card">
               <span class="info-label">Sala</span>
               <div class="info-value">${safeRoom}</div>
@@ -962,26 +1007,37 @@ export class PdfService {
     <h2>Resumo geral</h2>
 
     <div class="summary-layout">
-      <div class="card score-card">
-        ${avgDonut}
+      <div class="summary-chart-cell">
+        <div class="card score-card">
+          <div class="score-card-inner">
+            ${avgDonut}
+          </div>
+        </div>
       </div>
 
-      <div class="card">
-        <div class="kpi-grid">
-          <div class="kpi"><span>Média geral</span><strong>${averages.total ?? '—'}</strong></div>
-          <div class="kpi"><span>Redações</span><strong>${totalEssays}</strong></div>
-          <div class="kpi"><span>Corrigidas</span><strong>${correctedCount}</strong></div>
-          <div class="kpi"><span>Aguardando</span><strong>${pendingCount}</strong></div>
-          <div class="kpi"><span>Sala</span><strong style="font-size:14px; line-height:1.2;">${safeRoom}</strong></div>
-          <div class="kpi"><span>Escala</span><strong>1000</strong></div>
-        </div>
+      <div class="summary-kpi-cell">
+        <div class="card">
+          <div class="kpi-grid">
+            <div class="kpi-row">
+              <div class="kpi"><span>Média geral</span><strong>${averages.total ?? '—'}</strong></div>
+              <div class="kpi"><span>Redações</span><strong>${totalEssays}</strong></div>
+              <div class="kpi"><span>Corrigidas</span><strong>${correctedCount}</strong></div>
+            </div>
 
-        <div class="competence-legend">
-          <div class="legend-pill"><i class="c1-dot"></i>C1: ${averages.c1 ?? '—'}</div>
-          <div class="legend-pill"><i class="c2-dot"></i>C2: ${averages.c2 ?? '—'}</div>
-          <div class="legend-pill"><i class="c3-dot"></i>C3: ${averages.c3 ?? '—'}</div>
-          <div class="legend-pill"><i class="c4-dot"></i>C4: ${averages.c4 ?? '—'}</div>
-          <div class="legend-pill"><i class="c5-dot"></i>C5: ${averages.c5 ?? '—'}</div>
+            <div class="kpi-row">
+              <div class="kpi"><span>Aguardando</span><strong>${pendingCount}</strong></div>
+              <div class="kpi"><span>Sala</span><strong style="font-size:13px; line-height:1.2;">${safeRoom}</strong></div>
+              <div class="kpi"><span>Escala</span><strong>1000</strong></div>
+            </div>
+          </div>
+
+          <div class="competence-legend">
+            <div class="legend-pill"><i class="c1-dot"></i>C1: ${averages.c1 ?? '—'}</div>
+            <div class="legend-pill"><i class="c2-dot"></i>C2: ${averages.c2 ?? '—'}</div>
+            <div class="legend-pill"><i class="c3-dot"></i>C3: ${averages.c3 ?? '—'}</div>
+            <div class="legend-pill"><i class="c4-dot"></i>C4: ${averages.c4 ?? '—'}</div>
+            <div class="legend-pill"><i class="c5-dot"></i>C5: ${averages.c5 ?? '—'}</div>
+          </div>
         </div>
       </div>
     </div>
@@ -992,11 +1048,11 @@ export class PdfService {
       <table class="summary-table">
         <thead>
           <tr>
-            <th>#</th>
-            <th>Tarefa</th>
-            <th>Data</th>
-            <th>Status</th>
-            <th style="text-align:right;">Nota</th>
+            <th style="width:10mm;">#</th>
+            <th style="width:68mm;">Tarefa</th>
+            <th style="width:36mm;">Data</th>
+            <th style="width:38mm;">Status</th>
+            <th style="width:20mm; text-align:right;">Nota</th>
           </tr>
         </thead>
         <tbody>
