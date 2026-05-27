@@ -6,6 +6,7 @@ import {
   Get,
   Param,
   Post,
+  Patch,
   Body,
   Query,
   Req,
@@ -76,9 +77,6 @@ export class TasksController {
     return id;
   }
 
-  /**
-   * ✅ Garante que a sala existe e pertence ao professor
-   */
   private async ensureProfessorOwnsRoom(req: Request, roomId: string) {
     const professorId = this.ensureProfessor(req);
 
@@ -95,9 +93,6 @@ export class TasksController {
     return { professorId, room };
   }
 
-  /**
-   * ✅ Garante que a tarefa existe e pertence a uma sala do professor
-   */
   private async ensureProfessorOwnsTask(req: Request, taskId: string) {
     this.ensureProfessor(req);
 
@@ -116,10 +111,6 @@ export class TasksController {
     return task;
   }
 
-  /**
-   * ✅ Criar tarefa (professor)
-   * payload: { roomId, title, guidelines }
-   */
   @Post()
   async create(@Req() req: Request, @Body() body: any) {
     const roomId = this.norm(body?.roomId);
@@ -135,9 +126,6 @@ export class TasksController {
     return this.tasksService.create(roomId, title, guidelines);
   }
 
-  /**
-   * ✅ Listar tarefas por sala (professor + ownership)
-   */
   @Get('by-room')
   async findByRoom(@Req() req: Request, @Query('roomId') roomId: string) {
     const rid = this.norm(roomId);
@@ -148,10 +136,6 @@ export class TasksController {
     return this.tasksService.findByRoom(rid);
   }
 
-  /**
-   * ✅ Listar tarefas por sala para aluno matriculado
-   * IMPORTANTE: precisa vir antes de @Get(':id')
-   */
   @Get('by-room-student')
   async byRoomStudent(@Req() req: Request, @Query('roomId') roomId: string) {
     const studentId = this.ensureStudent(req);
@@ -164,10 +148,6 @@ export class TasksController {
     return this.tasksService.findByRoomForStudent(rid, studentId);
   }
 
-  /**
-   * ✅ Buscar tarefa por id para aluno matriculado
-   * IMPORTANTE: precisa vir antes de @Get(':id')
-   */
   @Get('student/:id')
   async findOneForStudent(@Req() req: Request, @Param('id') id: string) {
     const studentId = this.ensureStudent(req);
@@ -192,17 +172,32 @@ export class TasksController {
     return task;
   }
 
-  /**
-   * ✅ Buscar tarefa por id (professor + ownership via task->room)
-   */
   @Get(':id')
   async findOne(@Req() req: Request, @Param('id') id: string) {
     return this.ensureProfessorOwnsTask(req, id);
   }
 
-  /**
-   * ✅ Excluir tarefa (professor + ownership via task->room)
-   */
+  @Patch(':id')
+  async update(
+    @Req() req: Request,
+    @Param('id') id: string,
+    @Body() body: any,
+  ) {
+    const task = await this.ensureProfessorOwnsTask(req, id);
+
+    const title = this.norm(body?.title);
+    const guidelines = body?.guidelines ?? '';
+
+    if (!title) {
+      throw new BadRequestException('title é obrigatório.');
+    }
+
+    return this.tasksService.update((task as any).id, {
+      title,
+      guidelines,
+    });
+  }
+
   @Delete(':id')
   async remove(@Req() req: Request, @Param('id') id: string) {
     await this.ensureProfessorOwnsTask(req, id);
