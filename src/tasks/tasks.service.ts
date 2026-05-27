@@ -83,7 +83,10 @@ export class TasksService {
       throw new BadRequestException('roomId e title são obrigatórios.');
     }
 
-    const room = await this.roomRepo.findOne({ where: { id: r } });
+    const room = await this.roomRepo.findOne({
+      where: { id: r },
+    });
+
     await this.assertRoomAvailable(room);
 
     const task = this.taskRepo.create({
@@ -95,13 +98,64 @@ export class TasksService {
     return this.taskRepo.save(task);
   }
 
+  async update(
+    id: string,
+    data: {
+      title?: string;
+      guidelines?: string;
+    },
+  ) {
+    const tid = String(id || '').trim();
+
+    if (!tid) {
+      throw new BadRequestException('id é obrigatório.');
+    }
+
+    const task = await this.taskRepo.findOne({
+      where: { id: tid },
+    });
+
+    if (!task) {
+      throw new NotFoundException('Tarefa não encontrada.');
+    }
+
+    const room = await this.roomRepo.findOne({
+      where: { id: task.roomId },
+    });
+
+    await this.assertRoomAvailable(room);
+
+    const title =
+      data?.title !== undefined
+        ? String(data.title || '').trim()
+        : undefined;
+
+    if (title !== undefined && !title) {
+      throw new BadRequestException('title é obrigatório.');
+    }
+
+    if (title !== undefined) {
+      task.title = title;
+    }
+
+    if (data?.guidelines !== undefined) {
+      task.guidelines = String(data.guidelines || '');
+    }
+
+    return this.taskRepo.save(task);
+  }
+
   async findByRoom(roomId: string) {
     const r = String(roomId || '').trim();
+
     if (!r) {
       throw new BadRequestException('roomId é obrigatório.');
     }
 
-    const room = await this.roomRepo.findOne({ where: { id: r } });
+    const room = await this.roomRepo.findOne({
+      where: { id: r },
+    });
+
     this.assertRoomExists(room);
 
     return this.taskRepo.find({
@@ -112,11 +166,14 @@ export class TasksService {
 
   async findById(id: string) {
     const tid = String(id || '').trim();
+
     if (!tid) {
       throw new BadRequestException('id é obrigatório.');
     }
 
-    return this.taskRepo.findOne({ where: { id: tid } });
+    return this.taskRepo.findOne({
+      where: { id: tid },
+    });
   }
 
   async findByRoomForStudent(roomId: string, studentId: string) {
@@ -124,18 +181,28 @@ export class TasksService {
     const sid = String(studentId || '').trim();
 
     if (!rid || !sid) {
-      throw new BadRequestException('roomId e studentId são obrigatórios.');
+      throw new BadRequestException(
+        'roomId e studentId são obrigatórios.',
+      );
     }
 
-    const room = await this.roomRepo.findOne({ where: { id: rid } });
+    const room = await this.roomRepo.findOne({
+      where: { id: rid },
+    });
+
     await this.assertRoomAvailable(room);
 
     const enrollment = await this.enrollmentRepo.findOne({
-      where: { roomId: rid, studentId: sid },
+      where: {
+        roomId: rid,
+        studentId: sid,
+      },
     });
 
     if (!enrollment) {
-      throw new ForbiddenException('Você não participa desta sala.');
+      throw new ForbiddenException(
+        'Você não participa desta sala.',
+      );
     }
 
     return this.taskRepo.find({
@@ -146,19 +213,29 @@ export class TasksService {
 
   async remove(id: string) {
     const tid = String(id || '').trim();
+
     if (!tid) {
       throw new BadRequestException('id é obrigatório.');
     }
 
-    const task = await this.taskRepo.findOne({ where: { id: tid } });
+    const task = await this.taskRepo.findOne({
+      where: { id: tid },
+    });
+
     if (!task) {
       throw new NotFoundException('Tarefa não encontrada.');
     }
 
-    const room = await this.roomRepo.findOne({ where: { id: task.roomId } });
+    const room = await this.roomRepo.findOne({
+      where: { id: task.roomId },
+    });
+
     await this.assertRoomAvailable(room);
 
-    await this.essayRepo.delete({ taskId: tid });
+    await this.essayRepo.delete({
+      taskId: tid,
+    });
+
     await this.taskRepo.delete(tid);
 
     return { ok: true };
@@ -166,9 +243,13 @@ export class TasksService {
 
   async byRoom(roomId: string) {
     const r = String(roomId || '').trim();
+
     if (!r) return [];
 
-    const room = await this.roomRepo.findOne({ where: { id: r } });
+    const room = await this.roomRepo.findOne({
+      where: { id: r },
+    });
+
     this.assertRoomExists(room);
 
     return this.taskRepo.find({
