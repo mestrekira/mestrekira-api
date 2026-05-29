@@ -150,6 +150,24 @@ export class SchoolDashboardController {
     return this.schoolDash.roomOverview(schoolId, roomId);
   }
 
+  @Get('teachers')
+  listTeachers(@Req() req: Request) {
+    const schoolId = this.ensureSchool(req);
+    return this.schoolDash.listSchoolTeachers(schoolId);
+  }
+
+  @Patch('teachers/:id/deactivate')
+  deactivateTeacher(@Req() req: Request, @Param('id') teacherId: string) {
+    const schoolId = this.ensureSchool(req);
+    return this.schoolDash.deactivateSchoolTeacher(schoolId, teacherId);
+  }
+
+  @Delete('teachers/:id')
+  deleteTeacher(@Req() req: Request, @Param('id') teacherId: string) {
+    const schoolId = this.ensureSchool(req);
+    return this.schoolDash.deleteSchoolTeacher(schoolId, teacherId);
+  }
+
   @Delete('account')
   deleteAccount(@Req() req: Request) {
     const schoolId = this.ensureSchool(req);
@@ -175,3 +193,4 @@ export class SchoolDashboardController {
     };
   }
 }
+
