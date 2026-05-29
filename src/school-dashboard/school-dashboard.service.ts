@@ -1,4 +1,3 @@
-```ts
 import {
   BadRequestException,
   ForbiddenException,
@@ -1053,4 +1052,4 @@ export class SchoolDashboardService {
     };
   }
 }
-```
+
