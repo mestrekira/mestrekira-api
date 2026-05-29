@@ -463,37 +463,57 @@ export class SchoolDashboardService {
     };
   }
 
-  async listRooms(schoolId: string, yearId?: string | null) {
-    const sid = this.ensureUuid(schoolId, 'schoolId');
-    const y = yearId != null ? this.norm(yearId) : '';
+async listRooms(schoolId: string, yearId?: string | null) {
+const sid = this.ensureUuid(schoolId, 'schoolId');
+const y = yearId != null ? this.norm(yearId) : '';
 
-    const where: FindOptionsWhere<RoomEntity> = {
-      ownerType: 'SCHOOL',
-      schoolId: sid,
-    } as any;
+const where: FindOptionsWhere<RoomEntity> = {
+ownerType: 'SCHOOL',
+schoolId: sid,
+} as any;
 
-    if (y) where.schoolYearId = y as any;
+if (y) {
+where.schoolYearId = y as any;
+}
 
-    const rooms = await this.roomRepo.find({
-      where,
-      order: { createdAt: 'DESC' } as any,
-    });
+const rooms = await this.roomRepo.find({
+where,
+order: ({ createdAt: 'DESC' } as any),
+});
 
-    return {
-      ok: true,
-      rooms: rooms.map((r) => ({
-        id: r.id,
-        name: r.name,
-        code: r.code,
-        teacherId: r.teacherId,
-        teacherNameSnapshot: r.teacherNameSnapshot,
-        schoolYearId: r.schoolYearId,
-        isActive: r.isActive,
-        deactivatedAt: (r as any).deactivatedAt ?? null,
-        createdAt: (r as any).createdAt ?? null,
-      })),
-    };
-  }
+const teacherIds = rooms
+.map((r) => r.teacherId)
+.filter(Boolean);
+
+const teachers = teacherIds.length
+? await this.userRepo.find({
+where: teacherIds.map((id) => ({ id })) as any,
+select: ['id', 'email'],
+})
+: [];
+
+const teacherEmailMap = new Map(
+teachers.map((t) => [String(t.id), t.email]),
+);
+
+return {
+ok: true,
+rooms: rooms.map((r) => ({
+id: r.id,
+name: r.name,
+code: r.code,
+teacherId: r.teacherId,
+teacherNameSnapshot: r.teacherNameSnapshot,
+teacherEmail:
+teacherEmailMap.get(String(r.teacherId || '')) || '',
+schoolYearId: r.schoolYearId,
+isActive: r.isActive,
+deactivatedAt: (r as any).deactivatedAt ?? null,
+createdAt: (r as any).createdAt ?? null,
+})),
+};
+}
+
 
   async updateRoom(
     schoolId: string,
