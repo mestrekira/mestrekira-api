@@ -1,3 +1,4 @@
+```ts
 import {
   BadRequestException,
   ForbiddenException,
@@ -91,6 +92,61 @@ export class SchoolDashboardService {
     throw new BadRequestException('isActive inválido.');
   }
 
+  private getRoomTeacherId(room: RoomEntity) {
+    return String(
+      (room as any).teacherId || (room as any).professorId || '',
+    ).trim();
+  }
+
+  private async findSchoolTeacherOrFail(schoolId: string, teacherId: string) {
+    const sid = this.ensureUuid(schoolId, 'schoolId');
+    const tid = this.ensureUuid(teacherId, 'teacherId');
+
+    const teacher = await this.userRepo.findOne({
+      where: {
+        id: tid,
+        role: 'professor',
+        schoolId: sid,
+      } as any,
+    });
+
+    if (!teacher) {
+      throw new NotFoundException('Professor da escola não encontrado.');
+    }
+
+    if (this.roleOf(teacher) !== 'professor') {
+      throw new ForbiddenException('Usuário informado não é professor.');
+    }
+
+    if (String((teacher as any).schoolId || '').trim() !== sid) {
+      throw new ForbiddenException(
+        'Professor não pertence à escola informada.',
+      );
+    }
+
+    return teacher;
+  }
+
+  private async getSchoolTeacherRooms(schoolId: string, teacherId: string) {
+    const sid = this.ensureUuid(schoolId, 'schoolId');
+    const tid = this.ensureUuid(teacherId, 'teacherId');
+
+    const rooms = await this.roomRepo.find({
+      where: {
+        ownerType: 'SCHOOL',
+        schoolId: sid,
+      } as any,
+      order: { name: 'ASC' } as any,
+    });
+
+    return rooms.filter((room) => {
+      const t1 = String((room as any).teacherId || '').trim();
+      const t2 = String((room as any).professorId || '').trim();
+
+      return t1 === tid || t2 === tid;
+    });
+  }
+
   private async resolveSchoolTeacher(
     schoolId: string,
     teacherEmail: string,
@@ -127,16 +183,16 @@ export class SchoolDashboardService {
       createdTeacher.password = passwordHash;
       createdTeacher.role = 'professor';
 
-      (createdTeacher as any).professorType = 'SCHOOL';
-      (createdTeacher as any).schoolId = sid;
-      (createdTeacher as any).mustChangePassword = true;
-      (createdTeacher as any).trialMode = false;
-      (createdTeacher as any).isActive = true;
+      createdTeacher.professorType = 'SCHOOL';
+      createdTeacher.schoolId = sid;
+      createdTeacher.mustChangePassword = true;
+      createdTeacher.trialMode = false;
+      createdTeacher.isActive = true;
 
-      (createdTeacher as any).emailVerified = true;
-      (createdTeacher as any).emailVerifiedAt = new Date();
-      (createdTeacher as any).emailVerifyTokenHash = null;
-      (createdTeacher as any).emailVerifyTokenExpiresAt = null;
+      createdTeacher.emailVerified = true;
+      createdTeacher.emailVerifiedAt = new Date();
+      createdTeacher.emailVerifyTokenHash = null;
+      createdTeacher.emailVerifyTokenExpiresAt = null;
 
       teacher = await this.userRepo.save(createdTeacher);
       teacherWasProvisioned = true;
@@ -148,7 +204,7 @@ export class SchoolDashboardService {
         );
       }
 
-      const teacherSchoolId = String((teacher as any).schoolId || '').trim();
+      const teacherSchoolId = String(teacher.schoolId || '').trim();
 
       if (teacherSchoolId && teacherSchoolId !== sid) {
         throw new ForbiddenException(
@@ -156,9 +212,7 @@ export class SchoolDashboardService {
         );
       }
 
-      const professorType = String(
-        (teacher as any).professorType || '',
-      ).toUpperCase();
+      const professorType = String(teacher.professorType || '').toUpperCase();
 
       let mustSaveTeacher = false;
 
@@ -175,19 +229,24 @@ export class SchoolDashboardService {
         const passwordHash = await bcrypt.hash(generatedTempPassword, 10);
 
         teacher.password = passwordHash;
-        (teacher as any).professorType = 'SCHOOL';
-        (teacher as any).schoolId = sid;
-        (teacher as any).mustChangePassword = true;
-        (teacher as any).trialMode = false;
-        (teacher as any).isActive = true;
+        teacher.professorType = 'SCHOOL';
+        teacher.schoolId = sid;
+        teacher.mustChangePassword = true;
+        teacher.trialMode = false;
+        teacher.isActive = true;
 
-        (teacher as any).emailVerified = true;
-        (teacher as any).emailVerifiedAt = new Date();
-        (teacher as any).emailVerifyTokenHash = null;
-        (teacher as any).emailVerifyTokenExpiresAt = null;
+        teacher.emailVerified = true;
+        teacher.emailVerifiedAt = new Date();
+        teacher.emailVerifyTokenHash = null;
+        teacher.emailVerifyTokenExpiresAt = null;
 
         mustSaveTeacher = true;
         teacherWasProvisioned = true;
+      }
+
+      if (teacher.isActive === false) {
+        teacher.isActive = true;
+        mustSaveTeacher = true;
       }
 
       if (mustSaveTeacher) {
@@ -453,9 +512,9 @@ export class SchoolDashboardService {
         id: teacher.id,
         email: teacher.email,
         name: teacher.name,
-        professorType: (teacher as any).professorType ?? null,
-        schoolId: (teacher as any).schoolId ?? null,
-        mustChangePassword: !!(teacher as any).mustChangePassword,
+        professorType: teacher.professorType ?? null,
+        schoolId: teacher.schoolId ?? null,
+        mustChangePassword: !!teacher.mustChangePassword,
         createdOrUpdated: teacherWasProvisioned,
         createdNow: teacherCreatedNow,
         emailSent: !!generatedTempPassword,
@@ -463,57 +522,194 @@ export class SchoolDashboardService {
     };
   }
 
-async listRooms(schoolId: string, yearId?: string | null) {
-const sid = this.ensureUuid(schoolId, 'schoolId');
-const y = yearId != null ? this.norm(yearId) : '';
+  async listRooms(schoolId: string, yearId?: string | null) {
+    const sid = this.ensureUuid(schoolId, 'schoolId');
+    const y = yearId != null ? this.norm(yearId) : '';
 
-const where: FindOptionsWhere<RoomEntity> = {
-ownerType: 'SCHOOL',
-schoolId: sid,
-} as any;
+    const where: FindOptionsWhere<RoomEntity> = {
+      ownerType: 'SCHOOL',
+      schoolId: sid,
+    } as any;
 
-if (y) {
-where.schoolYearId = y as any;
-}
+    if (y) {
+      where.schoolYearId = y as any;
+    }
 
-const rooms = await this.roomRepo.find({
-where,
-order: ({ createdAt: 'DESC' } as any),
-});
+    const rooms = await this.roomRepo.find({
+      where,
+      order: { createdAt: 'DESC' } as any,
+    });
 
-const teacherIds = rooms
-.map((r) => r.teacherId)
-.filter(Boolean);
+    const teacherIds = Array.from(
+      new Set(
+        rooms
+          .map((r) => this.getRoomTeacherId(r))
+          .filter(Boolean),
+      ),
+    );
 
-const teachers = teacherIds.length
-? await this.userRepo.find({
-where: teacherIds.map((id) => ({ id })) as any,
-select: ['id', 'email'],
-})
-: [];
+    const teachers = teacherIds.length
+      ? await this.userRepo.find({
+          where: teacherIds.map((id) => ({ id })) as any,
+          select: ['id', 'email'],
+        })
+      : [];
 
-const teacherEmailMap = new Map(
-teachers.map((t) => [String(t.id), t.email]),
-);
+    const teacherEmailMap = new Map(
+      teachers.map((t) => [String(t.id), t.email]),
+    );
 
-return {
-ok: true,
-rooms: rooms.map((r) => ({
-id: r.id,
-name: r.name,
-code: r.code,
-teacherId: r.teacherId,
-teacherNameSnapshot: r.teacherNameSnapshot,
-teacherEmail:
-teacherEmailMap.get(String(r.teacherId || '')) || '',
-schoolYearId: r.schoolYearId,
-isActive: r.isActive,
-deactivatedAt: (r as any).deactivatedAt ?? null,
-createdAt: (r as any).createdAt ?? null,
-})),
-};
-}
+    return {
+      ok: true,
+      rooms: rooms.map((r) => {
+        const teacherId = this.getRoomTeacherId(r);
 
+        return {
+          id: r.id,
+          name: r.name,
+          code: r.code,
+          teacherId: r.teacherId,
+          teacherNameSnapshot: r.teacherNameSnapshot,
+          teacherEmail: teacherEmailMap.get(teacherId) || '',
+          schoolYearId: r.schoolYearId,
+          isActive: r.isActive,
+          deactivatedAt: (r as any).deactivatedAt ?? null,
+          createdAt: (r as any).createdAt ?? null,
+        };
+      }),
+    };
+  }
+
+  async listSchoolTeachers(schoolId: string) {
+    const sid = this.ensureUuid(schoolId, 'schoolId');
+
+    const teachers = await this.userRepo.find({
+      where: {
+        role: 'professor',
+        schoolId: sid,
+      } as any,
+      order: { name: 'ASC' } as any,
+    });
+
+    const rooms = await this.roomRepo.find({
+      where: {
+        ownerType: 'SCHOOL',
+        schoolId: sid,
+      } as any,
+      order: { name: 'ASC' } as any,
+    });
+
+    const roomsByTeacher = new Map<string, RoomEntity[]>();
+
+    for (const room of rooms) {
+      const ids = Array.from(
+        new Set(
+          [
+            String((room as any).teacherId || '').trim(),
+            String((room as any).professorId || '').trim(),
+          ].filter(Boolean),
+        ),
+      );
+
+      for (const teacherId of ids) {
+        if (!roomsByTeacher.has(teacherId)) {
+          roomsByTeacher.set(teacherId, []);
+        }
+
+        roomsByTeacher.get(teacherId)!.push(room);
+      }
+    }
+
+    const mapped = teachers.map((teacher) => {
+      const teacherRooms = roomsByTeacher.get(String(teacher.id)) || [];
+
+      const activeRooms = teacherRooms.filter(
+        (room) => room.isActive !== false,
+      ).length;
+
+      const inactiveRooms = teacherRooms.filter(
+        (room) => room.isActive === false,
+      ).length;
+
+      const roomsTotal = teacherRooms.length;
+      const isActive = teacher.isActive !== false;
+
+      return {
+        id: teacher.id,
+        name: teacher.name,
+        email: teacher.email,
+        isActive,
+        professorType: teacher.professorType ?? null,
+        schoolId: teacher.schoolId ?? null,
+        mustChangePassword: !!teacher.mustChangePassword,
+        roomsTotal,
+        activeRooms,
+        inactiveRooms,
+        canDeactivate: isActive && activeRooms === 0,
+        canDelete: roomsTotal === 0,
+        rooms: teacherRooms.map((room) => ({
+          id: room.id,
+          name: room.name,
+          isActive: room.isActive !== false,
+        })),
+      };
+    });
+
+    return {
+      ok: true,
+      teachers: mapped,
+    };
+  }
+
+  async deactivateSchoolTeacher(schoolId: string, teacherId: string) {
+    const sid = this.ensureUuid(schoolId, 'schoolId');
+    const teacher = await this.findSchoolTeacherOrFail(sid, teacherId);
+    const rooms = await this.getSchoolTeacherRooms(sid, teacher.id);
+
+    const activeRooms = rooms.filter((room) => room.isActive !== false).length;
+
+    if (activeRooms > 0) {
+      throw new BadRequestException(
+        'Não é possível desativar este professor porque ele ainda possui sala ativa vinculada.',
+      );
+    }
+
+    teacher.isActive = false;
+
+    const saved = await this.userRepo.save(teacher);
+
+    return {
+      ok: true,
+      teacher: {
+        id: saved.id,
+        name: saved.name,
+        email: saved.email,
+        isActive: saved.isActive !== false,
+        professorType: saved.professorType ?? null,
+        schoolId: saved.schoolId ?? null,
+        mustChangePassword: !!saved.mustChangePassword,
+      },
+    };
+  }
+
+  async deleteSchoolTeacher(schoolId: string, teacherId: string) {
+    const sid = this.ensureUuid(schoolId, 'schoolId');
+    const teacher = await this.findSchoolTeacherOrFail(sid, teacherId);
+    const rooms = await this.getSchoolTeacherRooms(sid, teacher.id);
+
+    if (rooms.length > 0) {
+      throw new BadRequestException(
+        'Não é possível excluir este professor porque ainda existem salas vinculadas a ele. Desative o professor, se ele não tiver salas ativas.',
+      );
+    }
+
+    await this.userRepo.delete({ id: teacher.id });
+
+    return {
+      ok: true,
+      message: 'Professor excluído com sucesso.',
+    };
+  }
 
   async updateRoom(
     schoolId: string,
@@ -631,9 +827,9 @@ createdAt: (r as any).createdAt ?? null,
         id: teacher.id,
         email: teacher.email,
         name: teacher.name,
-        professorType: (teacher as any).professorType ?? null,
-        schoolId: (teacher as any).schoolId ?? null,
-        mustChangePassword: !!(teacher as any).mustChangePassword,
+        professorType: teacher.professorType ?? null,
+        schoolId: teacher.schoolId ?? null,
+        mustChangePassword: !!teacher.mustChangePassword,
         createdOrUpdated: teacherWasProvisioned,
         createdNow: teacherCreatedNow,
         emailSent: !!generatedTempPassword,
@@ -654,7 +850,7 @@ createdAt: (r as any).createdAt ?? null,
           if (
             teacher &&
             this.roleOf(teacher) === 'professor' &&
-            String((teacher as any).schoolId || '').trim() === sid
+            String(teacher.schoolId || '').trim() === sid
           ) {
             teacher.name = teacherNameNormalized;
             await this.userRepo.save(teacher);
@@ -857,3 +1053,4 @@ createdAt: (r as any).createdAt ?? null,
     };
   }
 }
+```
