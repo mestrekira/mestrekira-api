@@ -91,156 +91,22 @@ export class SchoolDashboardService {
     throw new BadRequestException('isActive inválido.');
   }
 
-  // ------------------------
-  // Ano letivo
-  // ------------------------
-  async createYear(schoolId: string, name: string) {
-    const sid = this.ensureUuid(schoolId, 'schoolId');
-    const n = this.norm(name);
-    if (!n) throw new BadRequestException('name é obrigatório.');
-
-    const year = this.yearRepo.create({
-      schoolId: sid,
-      name: n,
-      isActive: true,
-    });
-
-    try {
-      const saved = await this.yearRepo.save(year);
-      return { ok: true, year: saved };
-    } catch {
-      throw new BadRequestException('Já existe um ano letivo com esse nome.');
-    }
-  }
-
-  async listYears(schoolId: string) {
-    const sid = this.ensureUuid(schoolId, 'schoolId');
-
-    const years = await this.yearRepo.find({
-      where: { schoolId: sid },
-      order: ({ createdAt: 'DESC' } as any),
-    });
-
-    return { ok: true, years };
-  }
-
-  async updateYear(
+  private async resolveSchoolTeacher(
     schoolId: string,
-    yearId: string,
-    name?: string,
-    isActive?: any,
-  ) {
-    const sid = this.ensureUuid(schoolId, 'schoolId');
-    const yid = this.ensureUuid(yearId, 'id');
-
-    const year = await this.yearRepo.findOne({
-      where: { id: yid, schoolId: sid },
-    });
-    if (!year) throw new NotFoundException('Ano letivo não encontrado.');
-
-    let changed = false;
-
-    if (name != null) {
-      const n = this.norm(name);
-      if (!n) throw new BadRequestException('name inválido.');
-      if (year.name !== n) {
-        year.name = n;
-        changed = true;
-      }
-    }
-
-    const parsedIsActive = this.parseOptionalBoolean(isActive);
-    if (parsedIsActive !== undefined && year.isActive !== parsedIsActive) {
-      year.isActive = parsedIsActive;
-      changed = true;
-    }
-
-    if (!changed) {
-      return { ok: true, year };
-    }
-
-    try {
-      const saved = await this.yearRepo.save(year);
-
-      const reloaded = await this.yearRepo.findOne({
-        where: { id: yid, schoolId: sid },
-      });
-
-      return { ok: true, year: reloaded ?? saved };
-    } catch {
-      throw new BadRequestException('Já existe um ano letivo com esse nome.');
-    }
-  }
-
-  async deleteYear(schoolId: string, yearId: string) {
-    const sid = this.ensureUuid(schoolId, 'schoolId');
-    const yid = this.ensureUuid(yearId, 'id');
-
-    const year = await this.yearRepo.findOne({
-      where: { id: yid, schoolId: sid },
-    });
-    if (!year) throw new NotFoundException('Ano letivo não encontrado.');
-
-    await this.roomRepo.update(
-      { schoolId: sid, schoolYearId: yid } as any,
-      { schoolYearId: null } as any,
-    );
-
-    await this.yearRepo.delete({ id: yid });
-    return { ok: true };
-  }
-
-  // ------------------------
-  // Salas (painel escolar)
-  // ------------------------
-  async createRoomForTeacherEmail(
-    schoolId: string,
-    roomName: string,
     teacherEmail: string,
-    yearId: string,
     teacherName?: string,
-  ) {
+  ): Promise<{
+    teacher: UserEntity;
+    generatedTempPassword: string | null;
+    teacherWasProvisioned: boolean;
+    teacherCreatedNow: boolean;
+  }> {
     const sid = this.ensureUuid(schoolId, 'schoolId');
-    const name = this.norm(roomName);
     const email = this.norm(teacherEmail).toLowerCase();
-    const yid = this.ensureUuid(yearId, 'yearId');
     const teacherNameNormalized = this.norm(teacherName);
 
-    if (!name) throw new BadRequestException('name é obrigatório.');
     if (!email || !email.includes('@')) {
       throw new BadRequestException('teacherEmail inválido.');
-    }
-
-    const school = await this.userRepo.findOne({ where: { id: sid } });
-    if (!school) throw new NotFoundException('Escola não encontrada.');
-    if (this.roleOf(school) !== 'school') {
-      throw new ForbiddenException('Apenas escolas podem criar salas.');
-    }
-
-    const year = await this.yearRepo.findOne({
-      where: { id: yid, schoolId: sid },
-    });
-    if (!year) {
-      throw new BadRequestException('Ano letivo inválido para esta escola.');
-    }
-
-    if (year.isActive === false) {
-      throw new BadRequestException(
-        'Este ano letivo está inativo e não permite novas salas.',
-      );
-    }
-
-    const schoolRoomsCount = await this.roomRepo.count({
-      where: {
-        ownerType: 'SCHOOL',
-        schoolId: sid,
-      } as FindOptionsWhere<RoomEntity>,
-    });
-
-    if (schoolRoomsCount >= 10) {
-      throw new BadRequestException(
-        'Esta escola já atingiu o limite de 10 salas.',
-      );
     }
 
     let teacher: UserEntity | null = await this.userRepo.findOne({
@@ -272,8 +138,7 @@ export class SchoolDashboardService {
       (createdTeacher as any).emailVerifyTokenHash = null;
       (createdTeacher as any).emailVerifyTokenExpiresAt = null;
 
-      const savedTeacher = await this.userRepo.save(createdTeacher);
-      teacher = savedTeacher;
+      teacher = await this.userRepo.save(createdTeacher);
       teacherWasProvisioned = true;
       teacherCreatedNow = true;
     } else {
@@ -309,11 +174,12 @@ export class SchoolDashboardService {
         generatedTempPassword = this.newTempPassword();
         const passwordHash = await bcrypt.hash(generatedTempPassword, 10);
 
+        teacher.password = passwordHash;
         (teacher as any).professorType = 'SCHOOL';
         (teacher as any).schoolId = sid;
         (teacher as any).mustChangePassword = true;
+        (teacher as any).trialMode = false;
         (teacher as any).isActive = true;
-        teacher.password = passwordHash;
 
         (teacher as any).emailVerified = true;
         (teacher as any).emailVerifiedAt = new Date();
@@ -325,14 +191,185 @@ export class SchoolDashboardService {
       }
 
       if (mustSaveTeacher) {
-        const savedTeacher: UserEntity = await this.userRepo.save(teacher);
-        teacher = savedTeacher;
+        teacher = await this.userRepo.save(teacher);
       }
     }
 
     if (!teacher) {
       throw new BadRequestException('Não foi possível preparar o professor.');
     }
+
+    return {
+      teacher,
+      generatedTempPassword,
+      teacherWasProvisioned,
+      teacherCreatedNow,
+    };
+  }
+
+  async createYear(schoolId: string, name: string) {
+    const sid = this.ensureUuid(schoolId, 'schoolId');
+    const n = this.norm(name);
+    if (!n) throw new BadRequestException('name é obrigatório.');
+
+    const year = this.yearRepo.create({
+      schoolId: sid,
+      name: n,
+      isActive: true,
+    });
+
+    try {
+      const saved = await this.yearRepo.save(year);
+      return { ok: true, year: saved };
+    } catch {
+      throw new BadRequestException('Já existe um ano letivo com esse nome.');
+    }
+  }
+
+  async listYears(schoolId: string) {
+    const sid = this.ensureUuid(schoolId, 'schoolId');
+
+    const years = await this.yearRepo.find({
+      where: { schoolId: sid },
+      order: { createdAt: 'DESC' } as any,
+    });
+
+    return { ok: true, years };
+  }
+
+  async updateYear(
+    schoolId: string,
+    yearId: string,
+    name?: string,
+    isActive?: any,
+  ) {
+    const sid = this.ensureUuid(schoolId, 'schoolId');
+    const yid = this.ensureUuid(yearId, 'id');
+
+    const year = await this.yearRepo.findOne({
+      where: { id: yid, schoolId: sid },
+    });
+
+    if (!year) throw new NotFoundException('Ano letivo não encontrado.');
+
+    let changed = false;
+
+    if (name != null) {
+      const n = this.norm(name);
+      if (!n) throw new BadRequestException('name inválido.');
+
+      if (year.name !== n) {
+        year.name = n;
+        changed = true;
+      }
+    }
+
+    const parsedIsActive = this.parseOptionalBoolean(isActive);
+
+    if (parsedIsActive !== undefined && year.isActive !== parsedIsActive) {
+      year.isActive = parsedIsActive;
+      changed = true;
+    }
+
+    if (!changed) {
+      return { ok: true, year };
+    }
+
+    try {
+      const saved = await this.yearRepo.save(year);
+
+      const reloaded = await this.yearRepo.findOne({
+        where: { id: yid, schoolId: sid },
+      });
+
+      return { ok: true, year: reloaded ?? saved };
+    } catch {
+      throw new BadRequestException('Já existe um ano letivo com esse nome.');
+    }
+  }
+
+  async deleteYear(schoolId: string, yearId: string) {
+    const sid = this.ensureUuid(schoolId, 'schoolId');
+    const yid = this.ensureUuid(yearId, 'id');
+
+    const year = await this.yearRepo.findOne({
+      where: { id: yid, schoolId: sid },
+    });
+
+    if (!year) throw new NotFoundException('Ano letivo não encontrado.');
+
+    await this.roomRepo.update(
+      { schoolId: sid, schoolYearId: yid } as any,
+      { schoolYearId: null } as any,
+    );
+
+    await this.yearRepo.delete({ id: yid });
+
+    return { ok: true };
+  }
+
+  async createRoomForTeacherEmail(
+    schoolId: string,
+    roomName: string,
+    teacherEmail: string,
+    yearId: string,
+    teacherName?: string,
+  ) {
+    const sid = this.ensureUuid(schoolId, 'schoolId');
+    const name = this.norm(roomName);
+    const email = this.norm(teacherEmail).toLowerCase();
+    const yid = this.ensureUuid(yearId, 'yearId');
+    const teacherNameNormalized = this.norm(teacherName);
+
+    if (!name) throw new BadRequestException('name é obrigatório.');
+
+    if (!email || !email.includes('@')) {
+      throw new BadRequestException('teacherEmail inválido.');
+    }
+
+    const school = await this.userRepo.findOne({
+      where: { id: sid },
+    });
+
+    if (!school) throw new NotFoundException('Escola não encontrada.');
+
+    if (this.roleOf(school) !== 'school') {
+      throw new ForbiddenException('Apenas escolas podem criar salas.');
+    }
+
+    const year = await this.yearRepo.findOne({
+      where: { id: yid, schoolId: sid },
+    });
+
+    if (!year) {
+      throw new BadRequestException('Ano letivo inválido para esta escola.');
+    }
+
+    if (year.isActive === false) {
+      throw new BadRequestException(
+        'Este ano letivo está inativo e não permite novas salas.',
+      );
+    }
+
+    const schoolRoomsCount = await this.roomRepo.count({
+      where: {
+        ownerType: 'SCHOOL',
+        schoolId: sid,
+      } as FindOptionsWhere<RoomEntity>,
+    });
+
+    if (schoolRoomsCount >= 10) {
+      throw new BadRequestException(
+        'Esta escola já atingiu o limite de 10 salas.',
+      );
+    }
+
+    const {
+      teacher,
+      generatedTempPassword,
+      teacherWasProvisioned,
+      teacherCreatedNow,
+    } = await this.resolveSchoolTeacher(sid, email, teacherNameNormalized);
 
     const room = this.roomRepo.create({
       name,
@@ -384,7 +421,7 @@ export class SchoolDashboardService {
       );
     }
 
-    if (teacherCreatedNow && generatedTempPassword) {
+    if (generatedTempPassword) {
       const loginUrl = `${this.getWebUrl()}/login-professor.html`;
 
       await this.mailService.sendSchoolTeacherAccess({
@@ -420,7 +457,8 @@ export class SchoolDashboardService {
         schoolId: (teacher as any).schoolId ?? null,
         mustChangePassword: !!(teacher as any).mustChangePassword,
         createdOrUpdated: teacherWasProvisioned,
-        emailSent: !!(teacherCreatedNow && generatedTempPassword),
+        createdNow: teacherCreatedNow,
+        emailSent: !!generatedTempPassword,
       },
     };
   }
@@ -438,7 +476,7 @@ export class SchoolDashboardService {
 
     const rooms = await this.roomRepo.find({
       where,
-      order: ({ createdAt: 'DESC' } as any),
+      order: { createdAt: 'DESC' } as any,
     });
 
     return {
@@ -462,6 +500,7 @@ export class SchoolDashboardService {
     roomId: string,
     patch: {
       name?: string;
+      teacherName?: string;
       teacherEmail?: string;
       yearId?: string | null;
       isActive?: boolean;
@@ -473,57 +512,136 @@ export class SchoolDashboardService {
     const room = await this.roomRepo.findOne({
       where: { id: rid, ownerType: 'SCHOOL', schoolId: sid } as any,
     });
+
     if (!room) throw new NotFoundException('Sala não encontrada.');
 
+    const school = await this.userRepo.findOne({
+      where: { id: sid },
+    });
+
+    if (!school) throw new NotFoundException('Escola não encontrada.');
+
     const upd: Partial<RoomEntity> = {};
+
+    let effectiveRoomName = room.name;
+    let effectiveYearName = '';
+
+    if (room.schoolYearId) {
+      const currentYear = await this.yearRepo.findOne({
+        where: { id: room.schoolYearId, schoolId: sid },
+      });
+
+      effectiveYearName = currentYear?.name || '';
+    }
 
     if (patch.name != null) {
       const n = this.norm(patch.name);
       if (!n) throw new BadRequestException('name inválido.');
+
       upd.name = n;
-    }
-
-    if (patch.teacherEmail != null) {
-      const email = this.norm(patch.teacherEmail).toLowerCase();
-      if (!email.includes('@')) {
-        throw new BadRequestException('teacherEmail inválido.');
-      }
-
-      const teacher = await this.userRepo.findOne({ where: { email } });
-      if (!teacher) throw new NotFoundException('Professor não encontrado.');
-
-      if (this.roleOf(teacher) !== 'professor') {
-        throw new BadRequestException('O e-mail informado não é de professor.');
-      }
-
-      if (String((teacher as any).schoolId || '').trim() !== sid) {
-        throw new ForbiddenException(
-          'Este professor não pertence a esta escola.',
-        );
-      }
-
-      upd.teacherId = teacher.id;
-      upd.teacherNameSnapshot = this.norm(teacher.name) || email.split('@')[0];
-      upd.professorId = teacher.id;
+      effectiveRoomName = n;
     }
 
     if (patch.yearId !== undefined) {
       const y = patch.yearId == null ? '' : String(patch.yearId).trim();
+
       if (!y) {
         upd.schoolYearId = null;
+        effectiveYearName = '';
       } else {
         const year = await this.yearRepo.findOne({
           where: { id: y, schoolId: sid },
         });
+
         if (!year) {
           throw new BadRequestException('Ano letivo inválido para esta escola.');
         }
+
         if (year.isActive === false) {
           throw new BadRequestException(
             'Este ano letivo está inativo e não pode ser vinculado à sala.',
           );
         }
+
         upd.schoolYearId = y;
+        effectiveYearName = year.name;
+      }
+    }
+
+    if (patch.teacherEmail != null) {
+      const email = this.norm(patch.teacherEmail).toLowerCase();
+
+      if (!email || !email.includes('@')) {
+        throw new BadRequestException('teacherEmail inválido.');
+      }
+
+      const teacherNameNormalized = this.norm(patch.teacherName);
+
+      const {
+        teacher,
+        generatedTempPassword,
+        teacherWasProvisioned,
+        teacherCreatedNow,
+      } = await this.resolveSchoolTeacher(
+        sid,
+        email,
+        teacherNameNormalized,
+      );
+
+      upd.teacherId = teacher.id;
+      upd.professorId = teacher.id;
+      upd.teacherNameSnapshot = teacherNameNormalized || teacher.name;
+
+      if (generatedTempPassword) {
+        const loginUrl = `${this.getWebUrl()}/login-professor.html`;
+
+        await this.mailService.sendSchoolTeacherAccess({
+          to: teacher.email,
+          teacherName: teacher.name,
+          schoolName: school.name,
+          temporaryPassword: generatedTempPassword,
+          loginUrl,
+          roomName: effectiveRoomName,
+          roomCode: room.code,
+          yearName: effectiveYearName,
+        });
+      }
+
+      (upd as any).__teacherMeta = {
+        id: teacher.id,
+        email: teacher.email,
+        name: teacher.name,
+        professorType: (teacher as any).professorType ?? null,
+        schoolId: (teacher as any).schoolId ?? null,
+        mustChangePassword: !!(teacher as any).mustChangePassword,
+        createdOrUpdated: teacherWasProvisioned,
+        createdNow: teacherCreatedNow,
+        emailSent: !!generatedTempPassword,
+      };
+    } else if (patch.teacherName != null) {
+      const teacherNameNormalized = this.norm(patch.teacherName);
+
+      if (teacherNameNormalized) {
+        const currentTeacherId = String(
+          (room as any).teacherId || (room as any).professorId || '',
+        ).trim();
+
+        if (currentTeacherId) {
+          const teacher = await this.userRepo.findOne({
+            where: { id: currentTeacherId },
+          });
+
+          if (
+            teacher &&
+            this.roleOf(teacher) === 'professor' &&
+            String((teacher as any).schoolId || '').trim() === sid
+          ) {
+            teacher.name = teacherNameNormalized;
+            await this.userRepo.save(teacher);
+          }
+        }
+
+        upd.teacherNameSnapshot = teacherNameNormalized;
       }
     }
 
@@ -533,11 +651,19 @@ export class SchoolDashboardService {
       upd.deactivatedAt = nextIsActive ? null : new Date();
     }
 
-    if (!Object.keys(upd).length) return { ok: true, room };
+    const teacherMeta = (upd as any).__teacherMeta;
+    delete (upd as any).__teacherMeta;
+
+    if (!Object.keys(upd).length) {
+      return { ok: true, room };
+    }
 
     await this.roomRepo.update({ id: rid } as any, upd as any);
 
-    const updated = await this.roomRepo.findOne({ where: { id: rid } });
+    const updated = await this.roomRepo.findOne({
+      where: { id: rid },
+    });
+
     return {
       ok: true,
       room: {
@@ -551,6 +677,7 @@ export class SchoolDashboardService {
         deactivatedAt: (updated as any)?.deactivatedAt ?? null,
         createdAt: (updated as any)?.createdAt ?? null,
       },
+      teacher: teacherMeta || null,
     };
   }
 
@@ -569,9 +696,6 @@ export class SchoolDashboardService {
     return { ok: true };
   }
 
-  // ------------------------
-  // Exclusão da conta da escola
-  // ------------------------
   async deleteMyAccount(schoolId: string) {
     const sid = this.ensureUuid(schoolId, 'schoolId');
 
@@ -616,9 +740,6 @@ export class SchoolDashboardService {
     };
   }
 
-  // ------------------------
-  // Overview
-  // ------------------------
   async roomOverview(schoolId: string, roomId: string) {
     const sid = this.ensureUuid(schoolId, 'schoolId');
     const rid = this.ensureUuid(roomId, 'id');
