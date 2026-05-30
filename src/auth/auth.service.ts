@@ -31,9 +31,7 @@ export class AuthService {
     private readonly userRepo: Repository<UserEntity>,
   ) {}
 
-  // -----------------------------
-  // Helpers
-  // -----------------------------
+
   private normalizeEmail(email: string) {
     return String(email || '').trim().toLowerCase();
   }
@@ -46,7 +44,6 @@ export class AuthService {
   }
 
   private getWebUrl() {
-    // Ex.: https://www.mestrekira.com.br/app/frontend
     return (
       (process.env.APP_WEB_URL || '').trim() ||
       'https://www.mestrekira.com.br/app/frontend'
@@ -73,9 +70,6 @@ export class AuthService {
     return this.userRepo.findOne({ where: { email: normalized } });
   }
 
-  // -----------------------------
-  // Cadastro (cria + dispara verificação)
-  // -----------------------------
   async registerProfessor(name: string, email: string, password: string) {
     const created = await this.users.createProfessor(name, email, password);
     await this.requestEmailVerification(created.email);
@@ -112,9 +106,6 @@ export class AuthService {
     };
   }
 
-  // -----------------------------
-  // Login (bloqueia se não verificado) + JWT
-  // -----------------------------
   async login(email: string, password: string) {
     const user = await this.users.validateUser(email, password);
 
@@ -136,7 +127,7 @@ export class AuthService {
     const token = await this.jwt.signAsync({
       sub: user.id,
       role,
-      // extras úteis para guards (opcional)
+    
       mustChangePassword: !!(user as any).mustChangePassword,
     });
 
@@ -161,18 +152,36 @@ export class AuthService {
     };
   }
 
-  // -----------------------------
-  // Reenvio de verificação
-  // Segurança: não revela se email existe (evita enumeração)
-  // -----------------------------
-  async requestEmailVerification(email: string) {
+  async requestEmailVerification(
+  email: string,
+  expectedRole?: string,
+) {
     const user = await this.getUserByEmail(email);
 
-    // ✅ sempre responde ok
     if (!user) {
       return { ok: true, message: 'Se o e-mail existir, enviaremos um link.' };
     }
+const expected = String(
+  expectedRole || '',
+)
+  .trim()
+  .toLowerCase();
 
+if (expected) {
+  const actual = String(
+    user.role || '',
+  ).toLowerCase();
+
+  if (actual !== expected) {
+    throw new BadRequestException(
+      expected === 'professor'
+        ? 'Este e-mail não pertence a uma conta de professor.'
+        : expected === 'school'
+          ? 'Este e-mail não pertence a uma conta de escola.'
+          : 'Este e-mail não pertence a uma conta de estudante.',
+    );
+  }
+}
     if (user.emailVerified) {
       return { ok: true, message: 'E-mail já verificado.' };
     }
