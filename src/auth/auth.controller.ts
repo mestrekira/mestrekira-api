@@ -50,10 +50,6 @@ export class AuthController {
     }
   }
 
-  /**
-   * Diagnóstico 1:
-   * confirma se o header Authorization chegou ao backend
-   */
   @Post('debug-auth-header')
   debugAuthHeader(@Headers('authorization') authorization?: string) {
     const raw = String(authorization || '');
@@ -66,10 +62,6 @@ export class AuthController {
     };
   }
 
-  /**
-   * Diagnóstico 2:
-   * passa exatamente pelo mesmo AuthGuard('jwt')
-   */
   @UseGuards(AuthGuard('jwt'))
   @Get('debug-protected')
   debugProtected(@Req() req: Request) {
@@ -93,9 +85,11 @@ export class AuthController {
     if (!n || !e || !p) {
       throw new BadRequestException('Preencha nome, e-mail e senha.');
     }
+
     if (!e.includes('@')) {
       throw new BadRequestException('E-mail inválido.');
     }
+
     if (p.length < 8) {
       throw new BadRequestException('Senha deve ter no mínimo 8 caracteres.');
     }
@@ -104,63 +98,63 @@ export class AuthController {
   }
 
   @Post('register-professor')
-async registerProfessor(
-  @Body('name') name: string,
-  @Body('email') email: string,
-  @Body('password') password: string,
-) {
-  const n = String(name || '').trim();
-  const e = String(email || '').trim().toLowerCase();
-  const p = String(password || '');
+  async registerProfessor(
+    @Body('name') name: string,
+    @Body('email') email: string,
+    @Body('password') password: string,
+  ) {
+    const n = String(name || '').trim();
+    const e = String(email || '').trim().toLowerCase();
+    const p = String(password || '');
 
-  if (!n || !e || !p) {
-    throw new BadRequestException(
-      'Preencha nome, e-mail e senha.',
-    );
+    if (!n || !e || !p) {
+      throw new BadRequestException(
+        'Preencha nome, e-mail e senha.',
+      );
+    }
+
+    if (!e.includes('@')) {
+      throw new BadRequestException('E-mail inválido.');
+    }
+
+    if (p.length < 8) {
+      throw new BadRequestException(
+        'Senha deve ter no mínimo 8 caracteres.',
+      );
+    }
+
+    return this.auth.registerProfessor(n, e, p);
   }
 
-  if (!e.includes('@')) {
-    throw new BadRequestException('E-mail inválido.');
+  @Post('register-student')
+  async registerStudent(
+    @Body('name') name: string,
+    @Body('email') email: string,
+    @Body('password') password: string,
+  ) {
+    const n = String(name || '').trim();
+    const e = String(email || '').trim().toLowerCase();
+    const p = String(password || '');
+
+    if (!n || !e || !p) {
+      throw new BadRequestException(
+        'Preencha nome, e-mail e senha.',
+      );
+    }
+
+    if (!e.includes('@')) {
+      throw new BadRequestException('E-mail inválido.');
+    }
+
+    if (p.length < 8) {
+      throw new BadRequestException(
+        'Senha deve ter no mínimo 8 caracteres.',
+      );
+    }
+
+    return this.auth.registerStudent(n, e, p);
   }
 
-  if (p.length < 8) {
-    throw new BadRequestException(
-      'Senha deve ter no mínimo 8 caracteres.',
-    );
-  }
-
-  return this.auth.registerProfessor(n, e, p);
-}
-
-@Post('register-student')
-async registerStudent(
-  @Body('name') name: string,
-  @Body('email') email: string,
-  @Body('password') password: string,
-) {
-  const n = String(name || '').trim();
-  const e = String(email || '').trim().toLowerCase();
-  const p = String(password || '');
-
-  if (!n || !e || !p) {
-    throw new BadRequestException(
-      'Preencha nome, e-mail e senha.',
-    );
-  }
-
-  if (!e.includes('@')) {
-    throw new BadRequestException('E-mail inválido.');
-  }
-
-  if (p.length < 8) {
-    throw new BadRequestException(
-      'Senha deve ter no mínimo 8 caracteres.',
-    );
-  }
-
-  return this.auth.registerStudent(n, e, p);
-}
-  
   @Get('verify-email')
   async verifyEmail(
     @Query('token') token: string,
@@ -208,12 +202,29 @@ async registerStudent(
   }
 
   @Post('request-verify')
-  async requestVerify(@Body('email') email: string) {
+  async requestVerify(
+    @Body('email') email: string,
+    @Body('expectedRole') expectedRole?: string,
+  ) {
     const e = String(email || '').trim().toLowerCase();
+
     if (!e || !e.includes('@')) {
       throw new BadRequestException('E-mail inválido.');
     }
-    return this.auth.requestEmailVerification(e);
+
+    const role = String(expectedRole || '').trim().toLowerCase();
+
+    const safeRole =
+      role === 'professor' ||
+      role === 'teacher' ||
+      role === 'school' ||
+      role === 'student'
+        ? role === 'teacher'
+          ? 'professor'
+          : role
+        : undefined;
+
+    return this.auth.requestEmailVerification(e, safeRole);
   }
 
   @Post('admin/send-verify')
@@ -222,6 +233,7 @@ async registerStudent(
     @Body('userId') userId: string,
   ) {
     const expected = (process.env.AUTH_ADMIN_SECRET || '').trim();
+
     if (!expected || secret !== expected) {
       throw new UnauthorizedException('unauthorized');
     }
@@ -235,9 +247,11 @@ async registerStudent(
     @Body('role') role?: string,
   ) {
     const e = String(email || '').trim().toLowerCase();
+
     if (!e || !e.includes('@')) {
       throw new BadRequestException('E-mail inválido.');
     }
+
     return this.auth.requestPasswordReset(e, role);
   }
 
@@ -257,7 +271,12 @@ async registerStudent(
     @Body('newPassword') newPassword: string,
   ) {
     const uid = String((req as any)?.user?.id || '').trim();
-    if (!uid) throw new UnauthorizedException('Sessão inválida.');
+
+    if (!uid) {
+      throw new UnauthorizedException('Sessão inválida.');
+    }
+
     return this.auth.changePassword(uid, currentPassword, newPassword);
   }
 }
+
