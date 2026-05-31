@@ -116,9 +116,6 @@ export class RoomsController {
     return { studentId, room };
   }
 
-  // ======================================================
-  // ROTAS FIXAS PRIMEIRO
-  // ======================================================
 
   @Post()
   create(@Req() req: Request, @Body('name') name: string) {
@@ -172,9 +169,6 @@ export class RoomsController {
     });
   }
 
-  // ======================================================
-  // ROTAS DE AÇÃO EM SALAS
-  // ======================================================
 
   @Patch(':id/school-rename')
   async renameBySchool(
@@ -215,6 +209,30 @@ export class RoomsController {
     });
   }
 
+ @Patch(':id/professor-toggle-active')
+async toggleActiveByProfessor(
+  @Req() req: Request,
+  @Param('id') id: string,
+  @Body('isActive') isActive: boolean,
+) {
+  const professorId = this.ensureProfessor(req);
+
+  const rid = this.norm(id);
+
+  if (!rid) {
+    throw new BadRequestException(
+      'id é obrigatório.',
+    );
+  }
+
+  await this.ensureProfessorOwnsRoom(req, rid);
+
+  return this.roomsService.toggleActiveByProfessor({
+    roomId: rid,
+    professorId,
+    isActive: !!isActive,
+  });
+}
   @Delete(':id/by-school')
   async removeBySchool(@Req() req: Request, @Param('id') id: string) {
     const schoolId = this.ensureSchool(req);
