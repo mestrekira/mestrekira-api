@@ -165,10 +165,18 @@ export class RoomsService {
       );
     }
 
-    const count = await this.roomRepo.count({ where: { professorId: p } });
-    if (count >= 10) {
-      throw new BadRequestException('Limite atingido: máximo de 10 salas por professor.');
-    }
+  const activeRooms = await this.roomRepo.count({
+  where: {
+    professorId: p,
+    isActive: true,
+  },
+});
+
+if (activeRooms >= 10) {
+  throw new BadRequestException(
+    'Limite de 10 salas ativas atingido. Desative ou exclua uma sala antes de criar outra.',
+  );
+}
 
     const code = await this.generateUniqueCode();
 
@@ -188,6 +196,76 @@ export class RoomsService {
     return this.roomRepo.save(room);
   }
 
+  async toggleActiveByProfessor(params: {
+  roomId: string;
+  professorId: string;
+  isActive: boolean;
+}) {
+  const roomId = norm(params.roomId);
+  const professorId = norm(params.professorId);
+
+  if (!roomId) {
+    throw new BadRequestException('roomId é obrigatório.');
+  }
+
+  if (!professorId) {
+    throw new BadRequestException('professorId é obrigatório.');
+  }
+
+  const room = await this.roomRepo.findOne({
+    where: { id: roomId },
+  });
+
+  if (!room) {
+    throw new NotFoundException('Sala não encontrada.');
+  }
+
+  if (String(room.professorId || '') !== professorId) {
+    throw new ForbiddenException(
+      'Esta sala não pertence a este professor.',
+    );
+  }
+
+  const professor = await this.userRepo.findOne({
+    where: { id: professorId },
+  });
+
+  if (!professor) {
+    throw new NotFoundException('Professor não encontrado.');
+  }
+
+  if (
+    String(professor.professorType || '')
+      .trim()
+      .toUpperCase() === 'SCHOOL'
+  ) {
+    throw new ForbiddenException(
+      'Professores vinculados à escola não podem alterar o status das salas.',
+    );
+  }
+
+  if (params.isActive) {
+    const activeRooms = await this.roomRepo.count({
+      where: {
+        professorId,
+        isActive: true,
+      },
+    });
+
+    if (activeRooms >= 10) {
+      throw new BadRequestException(
+        'Limite de 10 salas ativas atingido. Desative ou exclua uma sala antes de ativar outra.',
+      );
+    }
+  }
+
+  room.isActive = !!params.isActive;
+  room.deactivatedAt = room.isActive
+    ? null
+    : new Date();
+
+  return this.roomRepo.save(room);
+}
   async findByProfessor(professorId: string) {
     const p = norm(professorId);
     if (!p) throw new BadRequestException('professorId é obrigatório.');
@@ -335,10 +413,18 @@ export class RoomsService {
       }
     }
 
-    const count = await this.roomRepo.count({ where: { schoolId } });
-    if (count >= 10) {
-      throw new BadRequestException('Limite atingido: máximo de 10 salas por escola.');
-    }
+  const activeRooms = await this.roomRepo.count({
+  where: {
+    schoolId,
+    isActive: true,
+  },
+});
+
+if (activeRooms >= 10) {
+  throw new BadRequestException(
+    'Limite de 10 salas ativas atingido. Desative ou exclua uma sala antes de criar outra.',
+  );
+}
 
     const code = await this.generateUniqueCode();
 
