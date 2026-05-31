@@ -409,18 +409,19 @@ export class SchoolDashboardService {
       );
     }
 
-    const schoolRoomsCount = await this.roomRepo.count({
-      where: {
-        ownerType: 'SCHOOL',
-        schoolId: sid,
-      } as FindOptionsWhere<RoomEntity>,
-    });
+   const activeSchoolRoomsCount = await this.roomRepo.count({
+  where: {
+    ownerType: 'SCHOOL',
+    schoolId: sid,
+    isActive: true,
+  } as FindOptionsWhere<RoomEntity>,
+});
 
-    if (schoolRoomsCount >= 10) {
-      throw new BadRequestException(
-        'Esta escola já atingiu o limite de 10 salas.',
-      );
-    }
+if (activeSchoolRoomsCount >= 10) {
+  throw new BadRequestException(
+    'Limite de 10 salas ativas atingido. Desative ou exclua uma sala antes de criar outra.',
+  );
+}
 
     const {
       teacher,
